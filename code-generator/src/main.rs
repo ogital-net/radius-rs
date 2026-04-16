@@ -177,7 +177,7 @@ fn generate_header(
 
 use std::net::{{Ipv4Addr, Ipv6Addr}};
 
-use chrono::{{DateTime, Utc}};
+use std::time::SystemTime;
 
 use crate::core::avp::{{AVP, AVPType, AVPError}};
 use crate::core::packet::Packet;
@@ -728,17 +728,17 @@ fn generate_date_attribute_code(
 ) {
     let code = format!(
         "/// Add `{method_identifier}` date value to a packet.
-pub fn add_{method_identifier}(packet: &mut Packet, value: &DateTime<Utc>) {{
+pub fn add_{method_identifier}(packet: &mut Packet, value: &SystemTime) {{
     packet.add(AVP::from_date({type_identifier}, value));
 }}
 /// Lookup a `{method_identifier}` date value from a packet.
 ///
 /// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
-pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<DateTime<Utc>, AVPError>> {{
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<SystemTime, AVPError>> {{
     packet.lookup({type_identifier}).map(|v| v.encode_date())
 }}
 /// Lookup all of the `{method_identifier}` date value from a packet.
-pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<DateTime<Utc>>, AVPError> {{
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<SystemTime>, AVPError> {{
     let mut vec = Vec::new();
     for avp in packet.lookup_all({type_identifier}) {{
         vec.push(avp.encode_date()?)

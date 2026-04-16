@@ -48,7 +48,7 @@
 //! VALUE    Prompt                Echo            1
 //! ```
 
-use chrono::{DateTime, Utc};
+use std::time::SystemTime;
 
 use crate::core::avp::{AVPError, AVPType, AVP};
 use crate::core::packet::Packet;
@@ -111,17 +111,17 @@ pub fn delete_event_timestamp(packet: &mut Packet) {
     packet.delete(EVENT_TIMESTAMP_TYPE);
 }
 /// Add `event_timestamp` date value to a packet.
-pub fn add_event_timestamp(packet: &mut Packet, value: &DateTime<Utc>) {
+pub fn add_event_timestamp(packet: &mut Packet, value: &SystemTime) {
     packet.add(AVP::from_date(EVENT_TIMESTAMP_TYPE, value));
 }
 /// Lookup a `event_timestamp` date value from a packet.
 ///
 /// It returns the first looked up value. If there is no associated value with `event_timestamp`, it returns `None`.
-pub fn lookup_event_timestamp(packet: &Packet) -> Option<Result<DateTime<Utc>, AVPError>> {
+pub fn lookup_event_timestamp(packet: &Packet) -> Option<Result<SystemTime, AVPError>> {
     packet.lookup(EVENT_TIMESTAMP_TYPE).map(|v| v.encode_date())
 }
 /// Lookup all of the `event_timestamp` date value from a packet.
-pub fn lookup_all_event_timestamp(packet: &Packet) -> Result<Vec<DateTime<Utc>>, AVPError> {
+pub fn lookup_all_event_timestamp(packet: &Packet) -> Result<Vec<SystemTime>, AVPError> {
     let mut vec = Vec::new();
     for avp in packet.lookup_all(EVENT_TIMESTAMP_TYPE) {
         vec.push(avp.encode_date()?)

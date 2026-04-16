@@ -2,7 +2,7 @@ use rand::Rng;
 use std::convert::TryInto;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use chrono::{DateTime, TimeZone, Utc};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 use crate::core::tag::{Tag, UNUSED_TAG_VALUE};
@@ -328,10 +328,11 @@ impl AVP {
     }
 
     /// (This method is for dictionary developers) make an AVP from a date value.
-    pub fn from_date(typ: AVPType, dt: &DateTime<Utc>) -> Self {
+    pub fn from_date(typ: AVPType, dt: &SystemTime) -> Self {
+        let secs = dt.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as u32;
         AVP {
             typ,
-            value: u32::to_be_bytes(dt.timestamp() as u32).to_vec(),
+            value: u32::to_be_bytes(secs).to_vec(),
         }
     }
 
@@ -805,7 +806,7 @@ impl AVP {
     }
 
     /// (This method is for dictionary developers) encode an AVP into date value.
-    pub fn encode_date(&self) -> Result<DateTime<Utc>, AVPError> {
+    pub fn encode_date(&self) -> Result<SystemTime, AVPError> {
         const U32_SIZE: usize = std::mem::size_of::<u32>();
         if self.value.len() != U32_SIZE {
             return Err(AVPError::InvalidAttributeLengthError(
@@ -818,7 +819,7 @@ impl AVP {
         match int_bytes.try_into() {
             Ok(boxed_array) => {
                 let timestamp = u32::from_be_bytes(boxed_array);
-                Ok(Utc.timestamp_opt(timestamp as i64, 0).unwrap())
+                Ok(UNIX_EPOCH + Duration::from_secs(timestamp as u64))
             }
             Err(e) => Err(AVPError::DecodingError(e.to_string())),
         }
@@ -941,8 +942,7 @@ impl AVP {
 #[cfg(test)]
 mod tests {
     use std::net::{Ipv4Addr, Ipv6Addr};
-
-    use chrono::Utc;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::core::avp::{AVPError, AVP};
     use crate::core::tag::Tag;
@@ -1089,9 +1089,15 @@ mod tests {
 
     #[test]
     fn it_should_convert_date() -> Result<(), AVPError> {
-        let now = Utc::now();
+        let now = SystemTime::now();
         let avp = AVP::from_date(1, &now);
-        assert_eq!(avp.encode_date()?.timestamp(), now.timestamp(),);
+        let now_secs = now.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let encoded_secs = avp
+            .encode_date()?
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert_eq!(encoded_secs, now_secs);
         Ok(())
     }
 
