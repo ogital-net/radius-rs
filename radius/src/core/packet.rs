@@ -346,10 +346,18 @@ impl Packet {
 
 impl Debug for Packet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let hex_auth: String = self
+            .authenticator
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         f.debug_struct("Packet")
-            .field("code", &self.code)
+            .field(
+                "code",
+                &format_args!("{} ({})", self.code.string(), self.code as u8),
+            )
             .field("identifier", &self.identifier)
-            .field("authenticator", &self.authenticator)
+            .field("authenticator", &hex_auth)
             .field("secret", &"*redacted*")
             .field("attributes", &self.attributes)
             .finish()
@@ -670,5 +678,47 @@ mod tests {
         let mut unknown_code_pkt = vec![0u8; RADIUS_PACKET_HEADER_LENGTH];
         unknown_code_pkt[0] = 0xff;
         assert!(!Packet::is_authentic_request(&unknown_code_pkt, b"secret"));
+    }
+
+    #[test]
+    fn test_debug_format() {
+        let secret = b"xyzzy5461";
+        // RFC 2865 §7.1 Access-Request test vector
+        let request: Vec<u8> = vec![
+            0x01, 0x00, 0x00, 0x38, 0x0f, 0x40, 0x3f, 0x94, 0x73, 0x97, 0x80, 0x57, 0xbd, 0x83,
+            0xd5, 0xcb, 0x98, 0xf4, 0x22, 0x7a, 0x01, 0x06, 0x6e, 0x65, 0x6d, 0x6f, 0x02, 0x12,
+            0x0d, 0xbe, 0x70, 0x8d, 0x93, 0xd4, 0x13, 0xce, 0x31, 0x96, 0xe4, 0x3f, 0x78, 0x2a,
+            0x0a, 0xee, 0x04, 0x06, 0xc0, 0xa8, 0x01, 0x10, 0x05, 0x06, 0x00, 0x00, 0x00, 0x03,
+        ];
+        let packet = Packet::decode(&request, secret).unwrap();
+        let debug_output = format!("{packet:#?}");
+        println!("{debug_output}");
+        let expected = r#"Packet {
+    code: Access-Request (1),
+    identifier: 0,
+    authenticator: "0f403f9473978057bd83d5cb98f4227a",
+    secret: "*redacted*",
+    attributes: Attributes(
+        [
+            AVP {
+                typ: User-Name (1),
+                value: "nemo",
+            },
+            AVP {
+                typ: User-Password (2),
+                value: <encrypted, 16 bytes>,
+            },
+            AVP {
+                typ: NAS-IP-Address (4),
+                value: 192.168.1.16,
+            },
+            AVP {
+                typ: NAS-Port (5),
+                value: 3,
+            },
+        ],
+    ),
+}"#;
+        assert_eq!(debug_output, expected);
     }
 }

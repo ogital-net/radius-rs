@@ -56,10 +56,223 @@ pub type AVPType = u8;
 pub const TYPE_INVALID: AVPType = 255;
 
 /// This struct represents a attribute-value pair.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct AVP {
     pub(crate) typ: AVPType,
     pub(crate) value: Bytes,
+}
+
+/// Wire encoding kind for a known RFC 2865 attribute, used only for Debug formatting.
+#[derive(Clone, Copy)]
+enum Rfc2865Kind {
+    String,
+    Encrypted,
+    Octets,
+    IpAddr,
+    Integer,
+    NamedInteger(&'static [(u32, &'static str)]),
+}
+
+const SERVICE_TYPE_NAMES: &[(u32, &str)] = &[
+    (1, "Login-User"),
+    (2, "Framed-User"),
+    (3, "Callback-Login-User"),
+    (4, "Callback-Framed-User"),
+    (5, "Outbound-User"),
+    (6, "Administrative-User"),
+    (7, "NAS-Prompt-User"),
+    (8, "Authenticate-Only"),
+    (9, "Callback-NAS-Prompt"),
+    (10, "Call-Check"),
+    (11, "Callback-Administrative"),
+];
+
+const FRAMED_PROTOCOL_NAMES: &[(u32, &str)] = &[
+    (1, "PPP"),
+    (2, "SLIP"),
+    (3, "ARAP"),
+    (4, "Gandalf-SLML"),
+    (5, "Xylogics-IPX-SLIP"),
+    (6, "X.75-Synchronous"),
+];
+
+const FRAMED_ROUTING_NAMES: &[(u32, &str)] = &[
+    (0, "None"),
+    (1, "Broadcast"),
+    (2, "Listen"),
+    (3, "Broadcast-Listen"),
+];
+
+const FRAMED_COMPRESSION_NAMES: &[(u32, &str)] = &[
+    (0, "None"),
+    (1, "Van-Jacobson-TCP-IP"),
+    (2, "IPX-Header-Compression"),
+    (3, "Stac-LZS"),
+];
+
+const LOGIN_SERVICE_NAMES: &[(u32, &str)] = &[
+    (0, "Telnet"),
+    (1, "Rlogin"),
+    (2, "TCP-Clear"),
+    (3, "PortMaster"),
+    (4, "LAT"),
+    (5, "X25-PAD"),
+    (6, "X25-T3POS"),
+    (8, "TCP-Clear-Quiet"),
+];
+
+const LOGIN_TCP_PORT_NAMES: &[(u32, &str)] = &[(23, "Telnet"), (513, "Rlogin"), (514, "Rsh")];
+
+const TERMINATION_ACTION_NAMES: &[(u32, &str)] = &[(0, "Default"), (1, "RADIUS-Request")];
+
+const NAS_PORT_TYPE_NAMES: &[(u32, &str)] = &[
+    (0, "Async"),
+    (1, "Sync"),
+    (2, "ISDN"),
+    (3, "ISDN-V120"),
+    (4, "ISDN-V110"),
+    (5, "Virtual"),
+    (6, "PIAFS"),
+    (7, "HDLC-Clear-Channel"),
+    (8, "X.25"),
+    (9, "X.75"),
+    (10, "G.3-Fax"),
+    (11, "SDSL"),
+    (12, "ADSL-CAP"),
+    (13, "ADSL-DMT"),
+    (14, "IDSL"),
+    (15, "Ethernet"),
+    (16, "xDSL"),
+    (17, "Cable"),
+    (18, "Wireless-Other"),
+    (19, "Wireless-802.11"),
+];
+
+fn rfc2865_attr_info(typ: AVPType) -> Option<(&'static str, Rfc2865Kind)> {
+    match typ {
+        1 => Some(("User-Name", Rfc2865Kind::String)),
+        2 => Some(("User-Password", Rfc2865Kind::Encrypted)),
+        3 => Some(("CHAP-Password", Rfc2865Kind::Octets)),
+        4 => Some(("NAS-IP-Address", Rfc2865Kind::IpAddr)),
+        5 => Some(("NAS-Port", Rfc2865Kind::Integer)),
+        6 => Some((
+            "Service-Type",
+            Rfc2865Kind::NamedInteger(SERVICE_TYPE_NAMES),
+        )),
+        7 => Some((
+            "Framed-Protocol",
+            Rfc2865Kind::NamedInteger(FRAMED_PROTOCOL_NAMES),
+        )),
+        8 => Some(("Framed-IP-Address", Rfc2865Kind::IpAddr)),
+        9 => Some(("Framed-IP-Netmask", Rfc2865Kind::IpAddr)),
+        10 => Some((
+            "Framed-Routing",
+            Rfc2865Kind::NamedInteger(FRAMED_ROUTING_NAMES),
+        )),
+        11 => Some(("Filter-Id", Rfc2865Kind::String)),
+        12 => Some(("Framed-MTU", Rfc2865Kind::Integer)),
+        13 => Some((
+            "Framed-Compression",
+            Rfc2865Kind::NamedInteger(FRAMED_COMPRESSION_NAMES),
+        )),
+        14 => Some(("Login-IP-Host", Rfc2865Kind::IpAddr)),
+        15 => Some((
+            "Login-Service",
+            Rfc2865Kind::NamedInteger(LOGIN_SERVICE_NAMES),
+        )),
+        16 => Some((
+            "Login-TCP-Port",
+            Rfc2865Kind::NamedInteger(LOGIN_TCP_PORT_NAMES),
+        )),
+        18 => Some(("Reply-Message", Rfc2865Kind::String)),
+        19 => Some(("Callback-Number", Rfc2865Kind::String)),
+        20 => Some(("Callback-Id", Rfc2865Kind::String)),
+        22 => Some(("Framed-Route", Rfc2865Kind::String)),
+        23 => Some(("Framed-IPX-Network", Rfc2865Kind::IpAddr)),
+        24 => Some(("State", Rfc2865Kind::Octets)),
+        25 => Some(("Class", Rfc2865Kind::Octets)),
+        26 => Some(("Vendor-Specific", Rfc2865Kind::Octets)),
+        27 => Some(("Session-Timeout", Rfc2865Kind::Integer)),
+        28 => Some(("Idle-Timeout", Rfc2865Kind::Integer)),
+        29 => Some((
+            "Termination-Action",
+            Rfc2865Kind::NamedInteger(TERMINATION_ACTION_NAMES),
+        )),
+        30 => Some(("Called-Station-Id", Rfc2865Kind::String)),
+        31 => Some(("Calling-Station-Id", Rfc2865Kind::String)),
+        32 => Some(("NAS-Identifier", Rfc2865Kind::String)),
+        33 => Some(("Proxy-State", Rfc2865Kind::Octets)),
+        34 => Some(("Login-LAT-Service", Rfc2865Kind::String)),
+        35 => Some(("Login-LAT-Node", Rfc2865Kind::String)),
+        36 => Some(("Login-LAT-Group", Rfc2865Kind::Octets)),
+        37 => Some(("Framed-AppleTalk-Link", Rfc2865Kind::Integer)),
+        38 => Some(("Framed-AppleTalk-Network", Rfc2865Kind::Integer)),
+        39 => Some(("Framed-AppleTalk-Zone", Rfc2865Kind::String)),
+        60 => Some(("CHAP-Challenge", Rfc2865Kind::Octets)),
+        61 => Some((
+            "NAS-Port-Type",
+            Rfc2865Kind::NamedInteger(NAS_PORT_TYPE_NAMES),
+        )),
+        62 => Some(("Port-Limit", Rfc2865Kind::Integer)),
+        63 => Some(("Login-LAT-Port", Rfc2865Kind::String)),
+        _ => None,
+    }
+}
+
+impl std::fmt::Debug for AVP {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn hex(data: &[u8]) -> String {
+            data.iter().map(|b| format!("{b:02x}")).collect()
+        }
+
+        let (type_label, value_label) = match rfc2865_attr_info(self.typ) {
+            Some((name, kind)) => {
+                let type_str = format!("{name} ({})", self.typ);
+                let value_str = match kind {
+                    Rfc2865Kind::String => match std::str::from_utf8(&self.value) {
+                        Ok(s) => format!("{s:?}"),
+                        Err(_) => hex(&self.value),
+                    },
+                    Rfc2865Kind::Encrypted => {
+                        format!("<encrypted, {} bytes>", self.value.len())
+                    }
+                    Rfc2865Kind::Octets => hex(&self.value),
+                    Rfc2865Kind::IpAddr => {
+                        if let Ok(arr) = <[u8; 4]>::try_from(self.value.as_ref()) {
+                            Ipv4Addr::from(arr).to_string()
+                        } else {
+                            hex(&self.value)
+                        }
+                    }
+                    Rfc2865Kind::Integer => {
+                        if let Ok(arr) = <[u8; 4]>::try_from(self.value.as_ref()) {
+                            u32::from_be_bytes(arr).to_string()
+                        } else {
+                            hex(&self.value)
+                        }
+                    }
+                    Rfc2865Kind::NamedInteger(names) => {
+                        if let Ok(arr) = <[u8; 4]>::try_from(self.value.as_ref()) {
+                            let n = u32::from_be_bytes(arr);
+                            match names.iter().find(|(v, _)| *v == n) {
+                                Some((_, label)) => format!("{label} ({n})"),
+                                None => n.to_string(),
+                            }
+                        } else {
+                            hex(&self.value)
+                        }
+                    }
+                };
+                (type_str, value_str)
+            }
+            None => (format!("{}", self.typ), hex(&self.value)),
+        };
+
+        f.debug_struct("AVP")
+            .field("typ", &format_args!("{type_label}"))
+            .field("value", &format_args!("{value_label}"))
+            .finish()
+    }
 }
 
 impl AVP {
