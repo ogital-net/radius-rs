@@ -6,7 +6,7 @@ use crate::core::avp::{AVPType, AVP, VENDOR_SPECIFIC_TYPE};
 pub(crate) struct Attributes(pub(crate) Vec<AVP>);
 
 impl Attributes {
-    pub(crate) fn decode(bs: Bytes) -> Result<Attributes, String> {
+    pub(crate) fn decode(bs: &Bytes) -> Result<Attributes, String> {
         let mut i = 0;
         let mut attrs = Vec::new();
         let len = bs.len();

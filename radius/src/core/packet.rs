@@ -72,28 +72,25 @@ impl Packet {
     }
 
     fn _new(code: Code, secret: &[u8], maybe_identifier: Option<u8>) -> Self {
-        match maybe_identifier {
-            Some(ident) => {
-                let authenticator = Bytes::from(crypto::random_bytes(16));
-                Packet {
-                    code,
-                    identifier: ident,
-                    authenticator,
-                    secret: Bytes::copy_from_slice(secret),
-                    attributes: Attributes(vec![]),
-                }
+        if let Some(ident) = maybe_identifier {
+            let authenticator = Bytes::from(crypto::random_bytes(16));
+            Packet {
+                code,
+                identifier: ident,
+                authenticator,
+                secret: Bytes::copy_from_slice(secret),
+                attributes: Attributes(vec![]),
             }
-            None => {
-                // Single RNG call: 16 bytes authenticator + 1 byte identifier
-                let mut buf = [0u8; 17];
-                crypto::fill_random(&mut buf);
-                Packet {
-                    code,
-                    identifier: buf[16],
-                    authenticator: Bytes::copy_from_slice(&buf[..16]),
-                    secret: Bytes::copy_from_slice(secret),
-                    attributes: Attributes(vec![]),
-                }
+        } else {
+            // Single RNG call: 16 bytes authenticator + 1 byte identifier
+            let mut buf = [0u8; 17];
+            crypto::fill_random(&mut buf);
+            Packet {
+                code,
+                identifier: buf[16],
+                authenticator: Bytes::copy_from_slice(&buf[..16]),
+                secret: Bytes::copy_from_slice(secret),
+                attributes: Attributes(vec![]),
             }
         }
     }
@@ -164,7 +161,7 @@ impl Packet {
 
         let bs_bytes = Bytes::copy_from_slice(&bs[..len]);
 
-        let attributes = match Attributes::decode(bs_bytes.slice(RADIUS_PACKET_HEADER_LENGTH..len))
+        let attributes = match Attributes::decode(&bs_bytes.slice(RADIUS_PACKET_HEADER_LENGTH..len))
         {
             Ok(attributes) => attributes,
             Err(e) => return Err(PacketError::DecodingError(e)),
@@ -372,11 +369,16 @@ impl Packet {
 
 impl Debug for Packet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let hex_auth: String = self
-            .authenticator
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
+        let hex_auth: String = {
+            use std::fmt::Write as _;
+            self.authenticator.iter().fold(
+                String::with_capacity(self.authenticator.len() * 2),
+                |mut s, b| {
+                    write!(s, "{b:02x}").unwrap();
+                    s
+                },
+            )
+        };
         f.debug_struct("Packet")
             .field(
                 "code",

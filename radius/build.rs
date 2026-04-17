@@ -23,7 +23,10 @@ fn main() {
         .collect();
     dict_file_paths.sort();
 
-    let dict_file_path_refs: Vec<&Path> = dict_file_paths.iter().map(|p| p.as_path()).collect();
+    let dict_file_path_refs: Vec<&Path> = dict_file_paths
+        .iter()
+        .map(std::path::PathBuf::as_path)
+        .collect();
     code_generator::generate(&out_dir, &dict_file_path_refs);
 
     // Re-run this build script if any dict file changes.

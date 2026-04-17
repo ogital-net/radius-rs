@@ -102,6 +102,11 @@ where
 /// Also writes `out_dir/mod.rs` declaring every generated module as `pub mod`.
 /// Works correctly when `dict_file_paths` is sorted (cross-module value references
 /// are emitted in declaration order).
+///
+/// # Panics
+///
+/// Panics if `out_dir` cannot be created, if any dict file cannot be parsed,
+/// or if writing any output file fails.
 pub fn generate(out_dir: &Path, dict_file_paths: &[&Path]) {
     std::fs::create_dir_all(out_dir).unwrap_or_else(|e| {
         panic!(
@@ -269,7 +274,6 @@ fn generate_header(
 
 {net_import}{time_import}{avp_import}{packet_import}{tag_import}
 ",
-        rfc_name = rfc_name,
     );
 
     w.write_all(code.as_bytes()).unwrap();
@@ -356,6 +360,7 @@ fn generate_attributes_code(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn generate_attribute_code(
     w: &mut BufWriter<File>,
     attr: &RadiusAttribute,
@@ -1856,6 +1861,7 @@ pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<u16>, AVPEr
 
 type DictParsed = (Vec<RadiusAttribute>, BTreeMap<String, Vec<RadiusValue>>);
 
+#[allow(clippy::too_many_lines)]
 fn parse_dict_file(dict_file_path: &Path) -> Result<DictParsed, String> {
     let blank_re = Regex::new(r"^\s*$").unwrap();
     let comment_re = Regex::new(r"^#").unwrap();

@@ -224,7 +224,12 @@ fn rfc2865_attr_info(typ: AVPType) -> Option<(&'static str, Rfc2865Kind)> {
 impl std::fmt::Debug for AVP {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fn hex(data: &[u8]) -> String {
-            data.iter().map(|b| format!("{b:02x}")).collect()
+            use std::fmt::Write as _;
+            data.iter()
+                .fold(String::with_capacity(data.len() * 2), |mut s, b| {
+                    write!(s, "{b:02x}").unwrap();
+                    s
+                })
         }
 
         let (type_label, value_label) = match rfc2865_attr_info(self.typ) {
@@ -667,6 +672,10 @@ impl AVP {
     /// # Errors
     ///
     /// Returns [`AVPError::InvalidAttributeLengthError`] if the value is not exactly 4 bytes.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic; the `unwrap()` is unreachable because the length is validated above.
     pub fn encode_u32(&self) -> Result<u32, AVPError> {
         const U32_SIZE: usize = std::mem::size_of::<u32>();
         if self.value.len() != U32_SIZE {
@@ -687,6 +696,10 @@ impl AVP {
     /// # Errors
     ///
     /// Returns [`AVPError::InvalidAttributeLengthError`] if the value is not exactly 2 bytes.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic; the `unwrap()` is unreachable because the length is validated above.
     pub fn encode_u16(&self) -> Result<u16, AVPError> {
         const U16_SIZE: usize = std::mem::size_of::<u16>();
         if self.value.len() != U16_SIZE {
@@ -708,6 +721,10 @@ impl AVP {
     ///
     /// Returns [`AVPError`] if the tag byte is missing, the tag value is invalid, or the
     /// payload is not exactly 4 bytes following the tag.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic; the `unwrap()` is unreachable because the length is validated above.
     pub fn encode_tagged_u32(&self) -> Result<(u32, Tag), AVPError> {
         const U32_SIZE: usize = std::mem::size_of::<u32>();
         if self.value.is_empty() {
@@ -800,6 +817,10 @@ impl AVP {
     /// # Errors
     ///
     /// Returns [`AVPError::InvalidAttributeLengthError`] if the value is not exactly 4 bytes.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic; the `unwrap()` is unreachable because the length is validated above.
     pub fn encode_ipv4(&self) -> Result<Ipv4Addr, AVPError> {
         const IPV4_SIZE: usize = std::mem::size_of::<Ipv4Addr>();
         if self.value.len() != IPV4_SIZE {
@@ -836,6 +857,10 @@ impl AVP {
     /// # Errors
     ///
     /// Returns [`AVPError::InvalidAttributeLengthError`] if the value is not exactly 16 bytes.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic; the `unwrap()` is unreachable because the length is validated above.
     pub fn encode_ipv6(&self) -> Result<Ipv6Addr, AVPError> {
         const IPV6_SIZE: usize = std::mem::size_of::<Ipv6Addr>();
         if self.value.len() != IPV6_SIZE {
@@ -922,6 +947,10 @@ impl AVP {
     /// # Errors
     ///
     /// Returns [`AVPError::InvalidAttributeLengthError`] if the value is not exactly 4 bytes.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic; the `unwrap()` is unreachable because the length is validated above.
     pub fn encode_date(&self) -> Result<SystemTime, AVPError> {
         const U32_SIZE: usize = std::mem::size_of::<u32>();
         if self.value.len() != U32_SIZE {
