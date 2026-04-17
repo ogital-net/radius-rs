@@ -1197,11 +1197,9 @@ mod tests {
             value: bytes::Bytes::from(vec![0u8; 10]),
         };
         assert_eq!(
-            avp.encode_user_password(b"s", b"0123456789abcdef").unwrap_err(),
-            AVPError::InvalidAttributeLengthError(
-                "16 >= bytes && 128 <= bytes".to_owned(),
-                10
-            )
+            avp.encode_user_password(b"s", b"0123456789abcdef")
+                .unwrap_err(),
+            AVPError::InvalidAttributeLengthError("16 >= bytes && 128 <= bytes".to_owned(), 10)
         );
         // value > 128 bytes
         let avp = AVP {
@@ -1209,11 +1207,9 @@ mod tests {
             value: bytes::Bytes::from(vec![0u8; 144]),
         };
         assert_eq!(
-            avp.encode_user_password(b"s", b"0123456789abcdef").unwrap_err(),
-            AVPError::InvalidAttributeLengthError(
-                "16 >= bytes && 128 <= bytes".to_owned(),
-                144
-            )
+            avp.encode_user_password(b"s", b"0123456789abcdef")
+                .unwrap_err(),
+            AVPError::InvalidAttributeLengthError("16 >= bytes && 128 <= bytes".to_owned(), 144)
         );
     }
 
@@ -1224,7 +1220,8 @@ mod tests {
             value: bytes::Bytes::from(vec![0u8; 16]),
         };
         assert_eq!(
-            avp.encode_user_password(b"", b"0123456789abcdef").unwrap_err(),
+            avp.encode_user_password(b"", b"0123456789abcdef")
+                .unwrap_err(),
             AVPError::PasswordSecretMissingError()
         );
     }
@@ -1314,8 +1311,7 @@ mod tests {
             value: bytes::Bytes::from(value),
         };
         assert_eq!(
-            avp.encode_tunnel_password(b"secret", b"short")
-                .unwrap_err(),
+            avp.encode_tunnel_password(b"secret", b"short").unwrap_err(),
             AVPError::InvalidRequestAuthenticatorLength()
         );
     }

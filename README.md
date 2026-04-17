@@ -22,7 +22,7 @@ $ RUST_LOG=debug cargo run --example client # in another shell
 
 ## Supported Dictionaries
 
-This supports the following RFC dictionaries at the moment:
+### RFC Dictionaries
 
 - [RFC2865](https://tools.ietf.org/html/rfc2865)
 - [RFC2866](https://tools.ietf.org/html/rfc2866)
@@ -40,6 +40,7 @@ This supports the following RFC dictionaries at the moment:
 - [RFC4849](https://tools.ietf.org/html/rfc4849)
 - [RFC5090](https://tools.ietf.org/html/rfc5090)
 - [RFC5176](https://tools.ietf.org/html/rfc5176)
+- [RFC5580](https://tools.ietf.org/html/rfc5580)
 - [RFC5607](https://tools.ietf.org/html/rfc5607)
 - [RFC5904](https://tools.ietf.org/html/rfc5904)
 - [RFC6519](https://tools.ietf.org/html/rfc6519)
@@ -49,16 +50,37 @@ This supports the following RFC dictionaries at the moment:
 - [RFC7055](https://tools.ietf.org/html/rfc7055)
 - [RFC7155](https://tools.ietf.org/html/rfc7155)
 
-## Cryptography method feature option
+### Vendor Dictionaries
 
-By default, this library uses MD5 for authentication.
-Starting from version v0.4.0, it also supports [OpenSSL](https://www.openssl.org/).
+- Ascend (`radius::dict::ascend`)
+- Cisco (`radius::dict::cisco`)
+- Juniper (`radius::dict::juniper`)
+- Microsoft (`radius::dict::microsoft`)
+- MikroTik (`radius::dict::mikrotik`)
+- Ruckus (`radius::dict::ruckus`)
+- TP-Link (`radius::dict::tplink`)
+- WISPr (`radius::dict::wispr`)
 
-If you prefer to use OpenSSL, please add the following lines to your Cargo.toml:
+## Cryptography backends
+
+This library supports three mutually exclusive cryptography backends, controlled by Cargo features.
+Exactly one must be active at a time.
+
+| Feature | Description | Default |
+|---------|-------------|--------|
+| `aws-lc` | Uses [AWS-LC](https://github.com/aws/aws-lc) via `aws-lc-sys` for MD5 and random bytes | ✓ |
+| `openssl` | Uses [OpenSSL](https://www.openssl.org/) via the `openssl` crate | |
+| `md5` | Pure-Rust `md5` crate with the `rand` crate | |
+
+To select a different backend, disable the default and enable the one you want:
 
 ```toml
 [dependencies]
+# OpenSSL backend
 radius = { version = "__version__", default-features = false, features = ["openssl"] }
+
+# Pure-Rust backend
+radius = { version = "__version__", default-features = false, features = ["md5"] }
 ```
 
 ## Implementation guide for your RADIUS application
@@ -67,14 +89,14 @@ radius = { version = "__version__", default-features = false, features = ["opens
 
 - `Packet` struct represents request packet and response one.
   - This struct has a list of AVPs.
-  - You can get a specific AVP by RFC dictionary module.
+  - You can get a specific AVP via a dictionary module (e.g. `radius::dict::rfc2865`).
     - e.g. `rfc2865::lookup_user_name(packet)`
       - This method returns `Some(Result<String, AVPError>)` if the packet contains `User-Name` attribute.
-      - On the other hand, if the package doesn't have that attribute, it returns `None`.
-  - You can construct a packet with RFC dictionary module.
+      - On the other hand, if the packet doesn't have that attribute, it returns `None`.
+  - You can construct a packet with a dictionary module.
     - e.g. `rfc2865::add_user_name(&mut packet, "user")`
       - This method adds a `User-Name` AVP to the packet.
-  - Please refer to the rustdoc for each RFC dictionary module in detail.
+  - Please refer to the rustdoc for each dictionary module in detail.
 
 ### Server
 
@@ -91,7 +113,6 @@ radius = { version = "__version__", default-features = false, features = ["opens
 - Support the following RFC dictionaries:
   - rfc4679
   - rfc5447
-  - rfc5580
   - rfc6929
   - rfc6930
   - rfc7268

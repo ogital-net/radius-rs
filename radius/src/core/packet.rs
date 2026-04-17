@@ -644,9 +644,17 @@ mod tests {
     fn test_is_authentic_response_rejects_invalid_inputs() {
         let valid = vec![0u8; RADIUS_PACKET_HEADER_LENGTH];
         // response too short
-        assert!(!Packet::is_authentic_response(&valid[..10], &valid, b"secret"));
+        assert!(!Packet::is_authentic_response(
+            &valid[..10],
+            &valid,
+            b"secret"
+        ));
         // request too short
-        assert!(!Packet::is_authentic_response(&valid, &valid[..10], b"secret"));
+        assert!(!Packet::is_authentic_response(
+            &valid,
+            &valid[..10],
+            b"secret"
+        ));
         // empty secret
         assert!(!Packet::is_authentic_response(&valid, &valid, b""));
     }
