@@ -1,14 +1,17 @@
+use bytes::Bytes;
+
 use crate::core::avp::{AVPType, AVP};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Attributes(pub(crate) Vec<AVP>);
 
 impl Attributes {
-    pub(crate) fn decode(bs: &[u8]) -> Result<Attributes, String> {
+    pub(crate) fn decode(bs: Bytes) -> Result<Attributes, String> {
         let mut i = 0;
         let mut attrs = Vec::new();
+        let len = bs.len();
 
-        while bs.len() > i {
+        while len > i {
             if bs[i..].len() < 2 {
                 return Err("short buffer".to_owned());
             }
@@ -21,9 +24,9 @@ impl Attributes {
             attrs.push(AVP {
                 typ: bs[i],
                 value: if length > 2 {
-                    bs[i + 2..i + length].to_vec()
+                    bs.slice(i + 2..i + length)
                 } else {
-                    vec![]
+                    Bytes::new()
                 },
             });
 
@@ -34,11 +37,11 @@ impl Attributes {
     }
 
     pub(crate) fn add(&mut self, avp: AVP) {
-        self.0.push(avp)
+        self.0.push(avp);
     }
 
     pub(crate) fn extend(&mut self, avps: Vec<AVP>) {
-        self.0.extend(avps)
+        self.0.extend(avps);
     }
 
     pub(crate) fn del(&mut self, typ: AVPType) {
@@ -54,7 +57,8 @@ impl Attributes {
     }
 
     pub(crate) fn encode(&self) -> Result<Vec<u8>, String> {
-        let mut encoded: Vec<u8> = Vec::new();
+        let capacity: usize = self.0.iter().map(|avp| 2 + avp.value.len()).sum();
+        let mut encoded: Vec<u8> = Vec::with_capacity(capacity);
 
         for avp in &self.0 {
             let attr_len = avp.value.len();
@@ -62,8 +66,8 @@ impl Attributes {
                 return Err("attribute is too large".to_owned());
             }
             encoded.push(avp.typ);
-            encoded.push(2 + attr_len as u8);
-            encoded.extend(&avp.value);
+            encoded.push(2 + u8::try_from(attr_len).unwrap());
+            encoded.extend_from_slice(&avp.value);
         }
 
         Ok(encoded)

@@ -2,20 +2,20 @@
 pub trait VSA {
     /// len returns the length of sub-attribute of vendor-specific.
     ///
-    /// Ref: RFC 4679 - https://datatracker.ietf.org/doc/html/rfc4679
+    /// Ref: RFC 4679 - <https://datatracker.ietf.org/doc/html/rfc4679>
     /// > Vendor-Length
     /// >
     /// >   The Vendor-Length field is one octet and indicates the length of
     /// >   the entire sub-attribute, including the Vendor-Type,
     /// >   Vendor-Length, and Value fields.
     fn len(&self) -> usize;
-    /// is_empty returns whether the VSA is empty or not.
+    /// `is_empty` returns whether the VSA is empty or not.
     fn is_empty(&self) -> bool;
     /// message returns the serialized vendor-specific message for AVP.
     fn message(&self) -> Vec<u8>;
 }
 
-/// StringVSA represents the VSA according to the RFC 2865.
+/// `StringVSA` represents the VSA according to the RFC 2865.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StringVSA {
     vendor_id: Vec<u8>,
@@ -27,6 +27,8 @@ pub struct StringVSA {
 impl StringVSA {
     const BYTE_SIZE_OFFSET: usize = 2;
 
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn new(vendor_id: i32, vendor_type: u8, value: &str) -> StringVSA {
         StringVSA {
             vendor_id: vendor_id.to_be_bytes().to_vec(),
@@ -67,7 +69,7 @@ impl VSA for StringVSA {
     ///   |    Attribute-Specific...
     ///   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-
     ///
-    /// See also: RFC 2865 - https://datatracker.ietf.org/doc/html/rfc2865
+    /// See also: RFC 2865 - <https://datatracker.ietf.org/doc/html/rfc2865>
     fn message(&self) -> Vec<u8> {
         let total_length: usize = Self::BYTE_SIZE_OFFSET + self.vendor_id.len() + self.value.len();
         let mut result = Vec::with_capacity(total_length);
@@ -80,7 +82,7 @@ impl VSA for StringVSA {
     }
 }
 
-/// TaggedStringVSA represents the VSA which has a tag value.
+/// `TaggedStringVSA` represents the VSA which has a tag value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TaggedStringVSA {
     vendor_id: Vec<u8>,
@@ -93,6 +95,8 @@ pub struct TaggedStringVSA {
 impl TaggedStringVSA {
     const BYTE_SIZE_OFFSET: usize = 3;
 
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn new(vendor_id: i32, vendor_type: u8, tag: u8, value: &str) -> TaggedStringVSA {
         TaggedStringVSA {
             vendor_id: vendor_id.to_be_bytes().to_vec(),
@@ -134,7 +138,7 @@ impl VSA for TaggedStringVSA {
     ///   |    Tag        |  Attribute-Specific...
     ///   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-
     ///
-    /// See also: CISCO RADIUS Attributes Configuration Guide - https://www.cisco.com/c/en/us/td/docs/ios-xml/ios/sec_usr_radatt/configuration/xe-16/sec-usr-radatt-xe-16-book.pdf
+    /// See also: CISCO RADIUS Attributes Configuration Guide - <https://www.cisco.com/c/en/us/td/docs/ios-xml/ios/sec_usr_radatt/configuration/xe-16/sec-usr-radatt-xe-16-book.pdf>
     fn message(&self) -> Vec<u8> {
         let total_length: usize = Self::BYTE_SIZE_OFFSET + self.vendor_id.len() + self.value.len();
         let mut result = Vec::with_capacity(total_length);

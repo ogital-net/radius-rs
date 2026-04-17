@@ -21,7 +21,7 @@ const DEFAULT_SKIP_AUTHENTICITY_VALIDATION: bool = false;
 /// A basic implementation of the RADIUS server.
 ///
 /// ## Example Usage
-/// - https://github.com/moznion/radius-rs/blob/HEAD/examples/server.rs
+/// - <https://github.com/moznion/radius-rs/blob/HEAD/examples/server.rs>
 pub struct Server<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> {
     skip_authenticity_validation: bool,
     buf_size: usize,
@@ -53,6 +53,10 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
     /// - `port` - a port number to listen (e.g. `1812`)
     /// - `request_handler` - a request handler for the RADIUS requests.
     /// - `secret_provider` - a provider for shared-secret value.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if binding the UDP socket fails.
     pub async fn listen(
         host: &str,
         port: u16,
@@ -74,8 +78,8 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
             request_handler_arc,
             secret_provider_arc,
             undergoing_requests_lock_arc,
-            _phantom_return_type: Default::default(),
-            _phantom_error_type: Default::default(),
+            _phantom_return_type: PhantomData,
+            _phantom_error_type: PhantomData,
         })
     }
 
@@ -84,6 +88,10 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
     /// ## Parameters
     ///
     /// - `shutdown_trigger`: an implementation of the `Future` to interrupt to shutdown the RADIUS server (e.g. `signal::ctrl_c()`)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if a socket I/O error occurs during the request handling loop.
     pub async fn run(&mut self, shutdown_trigger: impl Future) -> Result<(), io::Error> {
         tokio::select! {
             res = self.run_loop() => {
@@ -107,6 +115,10 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
     }
 
     /// Returns the listening address.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if the local address cannot be retrieved from the socket.
     pub fn get_listen_address(&self) -> io::Result<SocketAddr> {
         self.conn_arc.local_addr()
     }
@@ -126,10 +138,7 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
             let local_addr = match conn.local_addr() {
                 Ok(addr) => addr,
                 Err(e) => {
-                    error!(
-                        "failed to get a local address from from a connection; {}",
-                        e
-                    );
+                    error!("failed to get a local address from from a connection; {e}");
                     continue;
                 }
             };
@@ -167,10 +176,7 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
         let secret: Vec<u8> = match secret_provider.fetch_secret(remote_addr) {
             Ok(secret) => secret,
             Err(e) => {
-                error!(
-                    "failed to fetch secret binary vector from the secret provider; {}",
-                    e
-                );
+                error!("failed to fetch secret binary vector from the secret provider; {e}");
                 return;
             }
         };
@@ -187,11 +193,8 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
         let packet = match Packet::decode(request_data, &secret) {
             Ok(packet) => packet,
             Err(e) => {
-                error!(
-                    "failed to parse given request data to pack into the RADIUS packet; {}",
-                    e
-                );
-                debug!("failed request data => {:?}", request_data);
+                error!("failed to parse given request data to pack into the RADIUS packet; {e}");
+                debug!("failed request data => {request_data:?}");
                 // TODO error handler support?
                 return;
             }
@@ -229,7 +232,7 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
     }
 }
 
-/// RequestHandler is a handler for the received RADIUS request.
+/// `RequestHandler` is a handler for the received RADIUS request.
 pub trait RequestHandler<T, E>: 'static + Sync + Send {
     /// This method has to implement the core feature of the server application what you need.
     ///
@@ -255,9 +258,13 @@ pub enum SecretProviderError {
     GenericError(String),
 }
 
-/// SecretProvider is a provider for secret value.
+/// `SecretProvider` is a provider for secret value.
 pub trait SecretProvider: 'static + Sync + Send {
     /// This method has to implement the generator of the shared-secret value to verify the request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SecretProviderError`] if the secret cannot be fetched.
     fn fetch_secret(&self, remote_addr: SocketAddr) -> Result<Vec<u8>, SecretProviderError>;
 }
 

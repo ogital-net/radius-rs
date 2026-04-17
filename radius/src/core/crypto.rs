@@ -2,9 +2,6 @@
 ///
 /// Priority order when multiple features are present: aws-lc > openssl > md5.
 /// Exactly one of `aws-lc`, `openssl`, or `md5` should be enabled.
-
-// ── MD5 ──────────────────────────────────────────────────────────────────────
-
 #[cfg(feature = "aws-lc")]
 pub fn md5(data: &[u8]) -> [u8; 16] {
     crate::core::aws_lc::md5(data)

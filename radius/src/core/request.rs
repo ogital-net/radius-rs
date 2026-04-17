@@ -10,6 +10,7 @@ pub struct Request {
 }
 
 impl Request {
+    #[must_use]
     pub fn new(local_addr: SocketAddr, remote_addr: SocketAddr, packet: Packet) -> Self {
         Self {
             local_addr,
@@ -18,14 +19,17 @@ impl Request {
         }
     }
 
+    #[must_use]
     pub fn get_local_addr(&self) -> SocketAddr {
         self.local_addr
     }
 
+    #[must_use]
     pub fn get_remote_addr(&self) -> SocketAddr {
         self.remote_addr
     }
 
+    #[must_use]
     pub fn get_packet(&self) -> &Packet {
         &self.packet
     }
