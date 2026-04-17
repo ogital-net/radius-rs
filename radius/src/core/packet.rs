@@ -619,4 +619,48 @@ mod tests {
         packet = Packet::new_with_identifier(Code::AccessRequest, b"12345", expected_ident);
         assert_eq!(packet.get_identifier(), expected_ident);
     }
+
+    #[test]
+    fn test_extend_adds_multiple_avps() {
+        let mut packet = Packet::new(Code::AccessRequest, b"secret");
+        let avps = vec![
+            AVP {
+                typ: 1,
+                value: bytes::Bytes::from_static(b"alice"),
+            },
+            AVP {
+                typ: 1,
+                value: bytes::Bytes::from_static(b"bob"),
+            },
+        ];
+        packet.extend(avps);
+        let all = packet.lookup_all(1);
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].encode_bytes(), b"alice");
+        assert_eq!(all[1].encode_bytes(), b"bob");
+    }
+
+    #[test]
+    fn test_is_authentic_response_rejects_invalid_inputs() {
+        let valid = vec![0u8; RADIUS_PACKET_HEADER_LENGTH];
+        // response too short
+        assert!(!Packet::is_authentic_response(&valid[..10], &valid, b"secret"));
+        // request too short
+        assert!(!Packet::is_authentic_response(&valid, &valid[..10], b"secret"));
+        // empty secret
+        assert!(!Packet::is_authentic_response(&valid, &valid, b""));
+    }
+
+    #[test]
+    fn test_is_authentic_request_rejects_invalid_inputs() {
+        let valid = vec![0u8; RADIUS_PACKET_HEADER_LENGTH];
+        // request too short
+        assert!(!Packet::is_authentic_request(&valid[..10], b"secret"));
+        // empty secret
+        assert!(!Packet::is_authentic_request(&valid, b""));
+        // unknown code → false
+        let mut unknown_code_pkt = vec![0u8; RADIUS_PACKET_HEADER_LENGTH];
+        unknown_code_pkt[0] = 0xff;
+        assert!(!Packet::is_authentic_request(&unknown_code_pkt, b"secret"));
+    }
 }

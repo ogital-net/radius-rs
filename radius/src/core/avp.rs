@@ -1029,4 +1029,294 @@ mod tests {
             AVPError::InvalidAttributeLengthError("16 bytes".to_owned(), 17)
         );
     }
+
+    #[test]
+    fn encode_u32_should_fail_on_wrong_length() {
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from_static(b"\x01\x02\x03"),
+        };
+        assert_eq!(
+            avp.encode_u32().unwrap_err(),
+            AVPError::InvalidAttributeLengthError("4 bytes".to_owned(), 3)
+        );
+    }
+
+    #[test]
+    fn encode_u16_should_fail_on_wrong_length() {
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from_static(b"\x01\x02\x03"),
+        };
+        assert_eq!(
+            avp.encode_u16().unwrap_err(),
+            AVPError::InvalidAttributeLengthError("2 bytes".to_owned(), 3)
+        );
+    }
+
+    #[test]
+    fn encode_tagged_u32_should_fail_on_empty_value() {
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::new(),
+        };
+        assert_eq!(
+            avp.encode_tagged_u32().unwrap_err(),
+            AVPError::TagMissingError()
+        );
+    }
+
+    #[test]
+    fn encode_tagged_u32_should_fail_on_invalid_tag() {
+        // Tag 0x20 is non-zero and > 0x1f, which is invalid
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from_static(b"\x20\x00\x00\x00\x01"),
+        };
+        assert_eq!(
+            avp.encode_tagged_u32().unwrap_err(),
+            AVPError::InvalidTagForIntegerValueError()
+        );
+    }
+
+    #[test]
+    fn encode_tagged_u32_should_fail_on_wrong_payload_size() {
+        // Valid tag 0x01 but only 3 bytes of payload instead of 4
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from_static(b"\x01\x00\x00\x01"),
+        };
+        assert_eq!(
+            avp.encode_tagged_u32().unwrap_err(),
+            AVPError::InvalidAttributeLengthError("5 bytes".to_owned(), 4)
+        );
+    }
+
+    #[test]
+    fn encode_tagged_string_should_fail_on_empty_value() {
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::new(),
+        };
+        assert_eq!(
+            avp.encode_tagged_string().unwrap_err(),
+            AVPError::TagMissingError()
+        );
+    }
+
+    #[test]
+    fn encode_string_should_fail_on_invalid_utf8() {
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from_static(b"\xff\xfe"),
+        };
+        assert!(matches!(
+            avp.encode_string().unwrap_err(),
+            AVPError::DecodingError(_)
+        ));
+    }
+
+    #[test]
+    fn encode_ipv4_should_fail_on_wrong_length() {
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from_static(b"\x01\x02\x03"),
+        };
+        assert_eq!(
+            avp.encode_ipv4().unwrap_err(),
+            AVPError::InvalidAttributeLengthError("4 bytes".to_owned(), 3)
+        );
+    }
+
+    #[test]
+    fn encode_ipv6_should_fail_on_wrong_length() {
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from(vec![0u8; 15]),
+        };
+        assert_eq!(
+            avp.encode_ipv6().unwrap_err(),
+            AVPError::InvalidAttributeLengthError("16 bytes".to_owned(), 15)
+        );
+    }
+
+    #[test]
+    fn encode_ipv6_prefix_should_fail_on_too_short_value() {
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from_static(b"\x01"),
+        };
+        assert_eq!(
+            avp.encode_ipv6_prefix().unwrap_err(),
+            AVPError::InvalidAttributeLengthError("2+ bytes".to_owned(), 1)
+        );
+    }
+
+    #[test]
+    fn encode_date_should_fail_on_wrong_length() {
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from_static(b"\x01\x02\x03"),
+        };
+        assert_eq!(
+            avp.encode_date().unwrap_err(),
+            AVPError::InvalidAttributeLengthError("4".to_owned(), 3)
+        );
+    }
+
+    #[test]
+    fn from_user_password_should_fail_on_too_long_plain_text() {
+        let plain_text = vec![0u8; 129];
+        assert_eq!(
+            AVP::from_user_password(1, &plain_text, b"secret", b"0123456789abcdef").unwrap_err(),
+            AVPError::UserPasswordPlainTextMaximumLengthExceededError(129)
+        );
+    }
+
+    #[test]
+    fn from_user_password_should_fail_on_missing_secret() {
+        assert_eq!(
+            AVP::from_user_password(1, b"pass", b"", b"0123456789abcdef").unwrap_err(),
+            AVPError::PasswordSecretMissingError()
+        );
+    }
+
+    #[test]
+    fn from_user_password_should_fail_on_wrong_authenticator_length() {
+        assert_eq!(
+            AVP::from_user_password(1, b"pass", b"secret", b"short").unwrap_err(),
+            AVPError::InvalidRequestAuthenticatorLength()
+        );
+    }
+
+    #[test]
+    fn encode_user_password_should_fail_on_wrong_avp_length() {
+        // value < 16 bytes
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from(vec![0u8; 10]),
+        };
+        assert_eq!(
+            avp.encode_user_password(b"s", b"0123456789abcdef").unwrap_err(),
+            AVPError::InvalidAttributeLengthError(
+                "16 >= bytes && 128 <= bytes".to_owned(),
+                10
+            )
+        );
+        // value > 128 bytes
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from(vec![0u8; 144]),
+        };
+        assert_eq!(
+            avp.encode_user_password(b"s", b"0123456789abcdef").unwrap_err(),
+            AVPError::InvalidAttributeLengthError(
+                "16 >= bytes && 128 <= bytes".to_owned(),
+                144
+            )
+        );
+    }
+
+    #[test]
+    fn encode_user_password_should_fail_on_missing_secret() {
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from(vec![0u8; 16]),
+        };
+        assert_eq!(
+            avp.encode_user_password(b"", b"0123456789abcdef").unwrap_err(),
+            AVPError::PasswordSecretMissingError()
+        );
+    }
+
+    #[test]
+    fn encode_user_password_should_fail_on_wrong_authenticator_length() {
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from(vec![0u8; 16]),
+        };
+        assert_eq!(
+            avp.encode_user_password(b"secret", b"short").unwrap_err(),
+            AVPError::InvalidRequestAuthenticatorLength()
+        );
+    }
+
+    #[test]
+    fn from_tunnel_password_should_fail_on_missing_secret() {
+        assert_eq!(
+            AVP::from_tunnel_password(1, None, b"pass", b"", b"0123456789abcdef").unwrap_err(),
+            AVPError::PasswordSecretMissingError()
+        );
+    }
+
+    #[test]
+    fn from_tunnel_password_should_fail_on_wrong_authenticator_length() {
+        assert_eq!(
+            AVP::from_tunnel_password(1, None, b"pass", b"secret", b"short").unwrap_err(),
+            AVPError::InvalidRequestAuthenticatorLength()
+        );
+    }
+
+    #[test]
+    fn encode_tunnel_password_should_fail_on_wrong_length() {
+        // too short (< 19)
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from(vec![0u8; 10]),
+        };
+        assert_eq!(
+            avp.encode_tunnel_password(b"secret", b"0123456789abcdef")
+                .unwrap_err(),
+            AVPError::InvalidAttributeLengthError(
+                "19 <= bytes && bytes <= 243 && (bytes - 3) % 16 == 0".to_owned(),
+                10
+            )
+        );
+    }
+
+    #[test]
+    fn encode_tunnel_password_should_fail_on_invalid_salt_msb() {
+        // 19-byte value: tag(1) + salt(2) + ciphertext(16); MSB of salt byte not set
+        let mut value = vec![0u8; 19];
+        value[1] = 0x00; // MSB not set
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from(value),
+        };
+        assert_eq!(
+            avp.encode_tunnel_password(b"secret", b"0123456789abcdef")
+                .unwrap_err(),
+            AVPError::InvalidSaltMSBError(0x00)
+        );
+    }
+
+    #[test]
+    fn encode_tunnel_password_should_fail_on_missing_secret() {
+        let mut value = vec![0u8; 19];
+        value[1] = 0x80; // MSB set (valid salt)
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from(value),
+        };
+        assert_eq!(
+            avp.encode_tunnel_password(b"", b"0123456789abcdef")
+                .unwrap_err(),
+            AVPError::PasswordSecretMissingError()
+        );
+    }
+
+    #[test]
+    fn encode_tunnel_password_should_fail_on_wrong_authenticator_length() {
+        let mut value = vec![0u8; 19];
+        value[1] = 0x80; // MSB set (valid salt)
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from(value),
+        };
+        assert_eq!(
+            avp.encode_tunnel_password(b"secret", b"short")
+                .unwrap_err(),
+            AVPError::InvalidRequestAuthenticatorLength()
+        );
+    }
 }
