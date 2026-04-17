@@ -346,7 +346,9 @@ impl AVP {
             return Err(AVPError::InvalidRequestAuthenticatorLength());
         }
 
-        let salt: [u8; 2] = [crypto::random_u8() | 0x80, crypto::random_u8()];
+        let mut salt = [0u8; 2];
+        crypto::fill_random(&mut salt);
+        salt[0] |= 0x80;
 
         // NOTE: prepend one byte as a tag and two bytes as a salt
         let num_chunks = if plain_text.is_empty() {

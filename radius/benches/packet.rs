@@ -34,6 +34,12 @@ fn bench_packet_encode_accounting(c: &mut Criterion) {
     });
 }
 
+fn bench_packet_new(c: &mut Criterion) {
+    c.bench_function("Packet::new", |b| {
+        b.iter(|| Packet::new(std::hint::black_box(Code::AccessRequest), std::hint::black_box(SECRET)))
+    });
+}
+
 fn bench_is_authentic_response(c: &mut Criterion) {
     // Build a valid Access-Accept response to the RFC2865 request.
     let request = Packet::decode(RFC2865_REQUEST, SECRET).unwrap();
@@ -53,6 +59,7 @@ fn bench_is_authentic_response(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    bench_packet_new,
     bench_packet_decode,
     bench_packet_encode,
     bench_packet_encode_accounting,

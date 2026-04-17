@@ -37,7 +37,7 @@ harness = false
 
 [features]
 default = ["aws-lc"]
-openssl = ["dep:openssl-crate", "dep:rand"]
+openssl = ["dep:openssl-crate"]
 md5 = ["dep:md5", "dep:rand"]
 aws-lc = ["dep:aws-lc-sys"]
 

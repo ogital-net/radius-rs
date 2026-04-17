@@ -29,19 +29,33 @@ pub fn random_bytes(n: usize) -> Vec<u8> {
 }
 
 #[cfg(feature = "aws-lc")]
-pub fn random_u8() -> u8 {
-    crate::core::aws_lc::random_u8()
+pub fn fill_random(buf: &mut [u8]) {
+    crate::core::aws_lc::rand_bytes(buf);
 }
 
-#[cfg(all(any(feature = "md5", feature = "openssl"), not(feature = "aws-lc")))]
+#[cfg(all(feature = "openssl", not(feature = "aws-lc")))]
 pub fn random_bytes(n: usize) -> Vec<u8> {
-    use rand::RngExt;
-    let mut rng = rand::rng();
-    (0..n).map(|_| rng.random()).collect()
+    let mut buf = vec![0u8; n];
+    fill_random(&mut buf);
+    buf
 }
 
-#[cfg(all(any(feature = "md5", feature = "openssl"), not(feature = "aws-lc")))]
-pub fn random_u8() -> u8 {
-    use rand::RngExt;
-    rand::rng().random()
+#[cfg(all(feature = "openssl", not(feature = "aws-lc")))]
+pub fn fill_random(buf: &mut [u8]) {
+    openssl_crate::rand::rand_bytes(buf).expect("openssl RAND_bytes failed");
 }
+
+#[cfg(all(feature = "md5", not(feature = "aws-lc"), not(feature = "openssl")))]
+pub fn random_bytes(n: usize) -> Vec<u8> {
+    let mut buf = vec![0u8; n];
+    fill_random(&mut buf);
+    buf
+}
+
+#[cfg(all(feature = "md5", not(feature = "aws-lc"), not(feature = "openssl")))]
+pub fn fill_random(buf: &mut [u8]) {
+    use rand::RngExt;
+    rand::rng().fill(buf);
+}
+
+

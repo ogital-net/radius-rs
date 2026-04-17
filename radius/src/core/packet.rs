@@ -72,16 +72,29 @@ impl Packet {
     }
 
     fn _new(code: Code, secret: &[u8], maybe_identifier: Option<u8>) -> Self {
-        let authenticator = Bytes::from(crypto::random_bytes(16));
-        Packet {
-            code,
-            identifier: match maybe_identifier {
-                Some(ident) => ident,
-                None => crypto::random_u8(),
-            },
-            authenticator,
-            secret: Bytes::copy_from_slice(secret),
-            attributes: Attributes(vec![]),
+        match maybe_identifier {
+            Some(ident) => {
+                let authenticator = Bytes::from(crypto::random_bytes(16));
+                Packet {
+                    code,
+                    identifier: ident,
+                    authenticator,
+                    secret: Bytes::copy_from_slice(secret),
+                    attributes: Attributes(vec![]),
+                }
+            }
+            None => {
+                // Single RNG call: 16 bytes authenticator + 1 byte identifier
+                let mut buf = [0u8; 17];
+                crypto::fill_random(&mut buf);
+                Packet {
+                    code,
+                    identifier: buf[16],
+                    authenticator: Bytes::copy_from_slice(&buf[..16]),
+                    secret: Bytes::copy_from_slice(secret),
+                    attributes: Attributes(vec![]),
+                }
+            }
         }
     }
 

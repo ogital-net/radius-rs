@@ -40,9 +40,4 @@ pub fn random_bytes(n: usize) -> Vec<u8> {
     buf
 }
 
-/// Return a single cryptographically secure random `u8`.
-pub fn random_u8() -> u8 {
-    let mut buf = [0u8; 1];
-    rand_bytes(&mut buf);
-    buf[0]
-}
+
