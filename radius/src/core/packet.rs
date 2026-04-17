@@ -1,6 +1,7 @@
 use std::convert::TryInto;
 use std::fmt::Debug;
 
+#[cfg(any(feature = "md5", feature = "openssl"))]
 use rand::RngExt;
 use thiserror::Error;
 
@@ -74,6 +75,7 @@ impl Packet {
         Self::_new(code, secret, Some(identifier))
     }
 
+    #[cfg(not(feature = "aws-lc"))]
     fn _new(code: Code, secret: &[u8], maybe_identifier: Option<u8>) -> Self {
         let mut rng = rand::rng();
         let authenticator = (0..16).map(|_| rng.random()).collect::<Vec<u8>>();
@@ -82,6 +84,22 @@ impl Packet {
             identifier: match maybe_identifier {
                 Some(ident) => ident,
                 None => rng.random(),
+            },
+            authenticator,
+            secret: secret.to_owned(),
+            attributes: Attributes(vec![]),
+        }
+    }
+
+    #[cfg(feature = "aws-lc")]
+    fn _new(code: Code, secret: &[u8], maybe_identifier: Option<u8>) -> Self {
+        use crate::core::aws_lc;
+        let authenticator = aws_lc::random_bytes(16);
+        Packet {
+            code: code.to_owned(),
+            identifier: match maybe_identifier {
+                Some(ident) => ident,
+                None => aws_lc::random_u8(),
             },
             authenticator,
             secret: secret.to_owned(),
@@ -267,6 +285,54 @@ impl Packet {
         }
     }
 
+    #[cfg(feature = "aws-lc")]
+    /// This method encodes the Packet into bytes.
+    pub fn encode(&self) -> Result<Vec<u8>, PacketError> {
+        use crate::core::aws_lc;
+
+        let mut bs = match self.marshal_binary() {
+            Ok(bs) => bs,
+            Err(e) => return Err(PacketError::EncodingError(e)),
+        };
+
+        match self.code {
+            Code::AccessRequest | Code::StatusServer => Ok(bs),
+            Code::AccessAccept
+            | Code::AccessReject
+            | Code::AccountingRequest
+            | Code::AccountingResponse
+            | Code::AccessChallenge
+            | Code::DisconnectRequest
+            | Code::DisconnectACK
+            | Code::DisconnectNAK
+            | Code::CoARequest
+            | Code::CoAACK
+            | Code::CoANAK => {
+                let mut buf: Vec<u8> = bs[..4].to_vec();
+                match self.code {
+                    Code::AccountingRequest // see "Request Authenticator" in https://tools.ietf.org/html/rfc2866#section-3
+                    | Code::DisconnectRequest // same as "RFC2866"; https://tools.ietf.org/html/rfc5176#section-2.3
+                    | Code::CoARequest // same as "RFC2866"; https://tools.ietf.org/html/rfc5176#section-2.3
+                    => {
+                        buf.extend(vec![
+                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                            0x00, 0x00, 0x00, 0x00,
+                        ]);
+                    }
+                    _ => {
+                        buf.extend(self.authenticator.clone());
+                    }
+                }
+                buf.extend(bs[RADIUS_PACKET_HEADER_LENGTH..].to_vec());
+                buf.extend(&self.secret);
+                bs.splice(4..20, aws_lc::md5(&buf).to_vec());
+
+                Ok(bs)
+            }
+            _ => Err(PacketError::UnknownCodeError(format!("{:?}", self.code))),
+        }
+    }
+
     /*
      * Binary structure:
      *   0                   1                   2                   3
@@ -347,6 +413,31 @@ impl Packet {
             .eq(&response[4..RADIUS_PACKET_HEADER_LENGTH].to_vec())
     }
 
+    #[cfg(feature = "aws-lc")]
+    /// Returns whether the Packet is authentic response or not.
+    pub fn is_authentic_response(response: &[u8], request: &[u8], secret: &[u8]) -> bool {
+        use crate::core::aws_lc;
+
+        if response.len() < RADIUS_PACKET_HEADER_LENGTH
+            || request.len() < RADIUS_PACKET_HEADER_LENGTH
+            || secret.is_empty()
+        {
+            return false;
+        }
+
+        aws_lc::md5(
+            &[
+                &response[..4],
+                &request[4..RADIUS_PACKET_HEADER_LENGTH],
+                &response[RADIUS_PACKET_HEADER_LENGTH..],
+                secret,
+            ]
+            .concat(),
+        )
+        .to_vec()
+        .eq(&response[4..RADIUS_PACKET_HEADER_LENGTH].to_vec())
+    }
+
     #[cfg(feature = "md5")]
     /// Returns whether the Packet is authentic request or not.
     pub fn is_authentic_request(request: &[u8], secret: &[u8]) -> bool {
@@ -403,6 +494,35 @@ impl Packet {
                 enc.to_vec()
                     .eq(&request[4..RADIUS_PACKET_HEADER_LENGTH].to_vec())
             }
+            _ => false,
+        }
+    }
+
+    #[cfg(feature = "aws-lc")]
+    /// Returns whether the Packet is authentic request or not.
+    pub fn is_authentic_request(request: &[u8], secret: &[u8]) -> bool {
+        use crate::core::aws_lc;
+
+        if request.len() < RADIUS_PACKET_HEADER_LENGTH || secret.is_empty() {
+            return false;
+        }
+
+        match Code::from(request[0]) {
+            Code::AccessRequest | Code::StatusServer => true,
+            Code::AccountingRequest | Code::DisconnectRequest | Code::CoARequest => aws_lc::md5(
+                &[
+                    &request[..4],
+                    &[
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00,
+                    ],
+                    &request[RADIUS_PACKET_HEADER_LENGTH..],
+                    secret,
+                ]
+                .concat(),
+            )
+            .to_vec()
+            .eq(&request[4..RADIUS_PACKET_HEADER_LENGTH].to_vec()),
             _ => false,
         }
     }

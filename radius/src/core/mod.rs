@@ -3,6 +3,8 @@
 pub mod ascend;
 pub(crate) mod attributes;
 pub mod avp;
+#[cfg(feature = "aws-lc")]
+pub(crate) mod aws_lc;
 pub mod cisco;
 pub mod code;
 pub mod juniper;

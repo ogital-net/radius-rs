@@ -1,3 +1,4 @@
+#[cfg(any(feature = "md5", feature = "openssl"))]
 use rand::RngExt;
 use std::convert::TryInto;
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -327,6 +328,61 @@ impl AVP {
         Ok(AVP { typ, value: enc })
     }
 
+    #[cfg(feature = "aws-lc")]
+    /// (This method is for dictionary developers) make an AVP from a user-password value.
+    /// see also: https://tools.ietf.org/html/rfc2865#section-5.2
+    pub fn from_user_password(
+        typ: AVPType,
+        plain_text: &[u8],
+        secret: &[u8],
+        request_authenticator: &[u8],
+    ) -> Result<Self, AVPError> {
+        if plain_text.len() > 128 {
+            return Err(AVPError::UserPasswordPlainTextMaximumLengthExceededError(
+                plain_text.len(),
+            ));
+        }
+
+        if secret.is_empty() {
+            return Err(AVPError::PasswordSecretMissingError());
+        }
+
+        if request_authenticator.len() != 16 {
+            return Err(AVPError::InvalidRequestAuthenticatorLength());
+        }
+
+        use crate::core::aws_lc;
+
+        let mut buff = request_authenticator.to_vec();
+
+        if plain_text.is_empty() {
+            let enc = aws_lc::md5(&[secret, &buff[..]].concat()).to_vec();
+            return Ok(AVP {
+                typ,
+                value: enc.iter().zip(vec![0; 16]).map(|(d, p)| d ^ p).collect(),
+            });
+        }
+
+        let mut enc: Vec<u8> = Vec::new();
+        for chunk in plain_text.chunks(16) {
+            let mut chunk_vec = chunk.to_vec();
+            let l = chunk.len();
+            if l < 16 {
+                chunk_vec.extend(vec![0; 16 - l]); // zero padding
+            }
+
+            let enc_block = aws_lc::md5(&[secret, &buff[..]].concat()).to_vec();
+            buff = enc_block
+                .iter()
+                .zip(chunk_vec)
+                .map(|(d, p)| d ^ p)
+                .collect();
+            enc.extend(&buff);
+        }
+
+        Ok(AVP { typ, value: enc })
+    }
+
     /// (This method is for dictionary developers) make an AVP from a date value.
     pub fn from_date(typ: AVPType, dt: &SystemTime) -> Self {
         let secs = dt.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as u32;
@@ -523,6 +579,78 @@ impl AVP {
             } else {
                 hash_val.unwrap()
             };
+            buff = enc_block
+                .iter()
+                .zip(chunk_vec)
+                .map(|(d, p)| d ^ p)
+                .collect();
+            enc.extend(&buff);
+        }
+
+        Ok(AVP { typ, value: enc })
+    }
+
+    #[cfg(feature = "aws-lc")]
+    /// (This method is for dictionary developers) make an AVP from a tunnel-password value.
+    /// see also: https://tools.ietf.org/html/rfc2868#section-3.5
+    pub fn from_tunnel_password(
+        typ: AVPType,
+        tag: Option<&Tag>,
+        plain_text: &[u8],
+        secret: &[u8],
+        request_authenticator: &[u8],
+    ) -> Result<Self, AVPError> {
+        if request_authenticator.len() > 240 {
+            return Err(AVPError::InvalidAttributeLengthError(
+                "240 bytes".to_owned(),
+                request_authenticator.len(),
+            ));
+        }
+
+        use crate::core::aws_lc;
+
+        let salt: [u8; 2] = [aws_lc::random_u8() | 0x80, aws_lc::random_u8()];
+
+        if secret.is_empty() {
+            return Err(AVPError::PasswordSecretMissingError());
+        }
+
+        if request_authenticator.len() != 16 {
+            return Err(AVPError::InvalidRequestAuthenticatorLength());
+        }
+
+        let mut enc: Vec<u8> = [
+            vec![tag.map_or(UNUSED_TAG_VALUE, |v| v.value)],
+            salt.to_vec(),
+        ]
+        .concat();
+
+        let mut buff = [request_authenticator, &salt].concat();
+        let enc_block = aws_lc::md5(&[secret, &buff[..]].concat()).to_vec();
+
+        if plain_text.is_empty() {
+            return Ok(AVP {
+                typ,
+                value: [
+                    enc,
+                    enc_block
+                        .iter()
+                        .zip(vec![0; 16])
+                        .map(|(d, p)| d ^ p)
+                        .collect::<Vec<u8>>(),
+                ]
+                .concat(),
+            });
+        }
+
+        for chunk in plain_text.chunks(16) {
+            let mut chunk_vec = chunk.to_vec();
+            let l = chunk.len();
+            if l < 16 {
+                chunk_vec.extend(vec![0; 16 - l]); // zero padding
+            }
+
+            let enc_block = aws_lc::md5(&[secret, &buff[..]].concat()).to_vec();
             buff = enc_block
                 .iter()
                 .zip(chunk_vec)
@@ -805,6 +933,53 @@ impl AVP {
         }
     }
 
+    #[cfg(feature = "aws-lc")]
+    /// (This method is for dictionary developers) encode an AVP into user-password value as bytes.
+    pub fn encode_user_password(
+        &self,
+        secret: &[u8],
+        request_authenticator: &[u8],
+    ) -> Result<Vec<u8>, AVPError> {
+        if self.value.len() < 16 || self.value.len() > 128 {
+            return Err(AVPError::InvalidAttributeLengthError(
+                "16 >= bytes && 128 <= bytes".to_owned(),
+                self.value.len(),
+            ));
+        }
+
+        if secret.is_empty() {
+            return Err(AVPError::PasswordSecretMissingError());
+        }
+
+        if request_authenticator.len() != 16 {
+            return Err(AVPError::InvalidRequestAuthenticatorLength());
+        }
+
+        use crate::core::aws_lc;
+
+        let mut dec: Vec<u8> = Vec::new();
+        let mut buff: Vec<u8> = request_authenticator.to_vec();
+
+        for chunk in self.value.chunks(16) {
+            let chunk_vec = chunk.to_vec();
+            let dec_block = aws_lc::md5(&[secret, &buff[..]].concat()).to_vec();
+            dec.extend(
+                dec_block
+                    .iter()
+                    .zip(&chunk_vec)
+                    .map(|(d, p)| d ^ p)
+                    .collect::<Vec<u8>>(),
+            );
+            buff = chunk_vec.clone();
+        }
+
+        // remove trailing zero bytes
+        match dec.split(|b| *b == 0).next() {
+            Some(dec) => Ok(dec.to_vec()),
+            None => Ok(vec![]),
+        }
+    }
+
     /// (This method is for dictionary developers) encode an AVP into date value.
     pub fn encode_date(&self) -> Result<SystemTime, AVPError> {
         const U32_SIZE: usize = std::mem::size_of::<u32>();
@@ -921,6 +1096,61 @@ impl AVP {
             } else {
                 hash_val.unwrap()
             };
+            dec.extend(
+                dec_block
+                    .iter()
+                    .zip(&chunk_vec)
+                    .map(|(d, p)| d ^ p)
+                    .collect::<Vec<u8>>(),
+            );
+            buff = chunk_vec.clone();
+        }
+
+        // remove trailing zero bytes
+        match dec.split(|b| *b == 0).next() {
+            Some(dec) => Ok((dec.to_vec(), tag)),
+            None => Ok((vec![], tag)),
+        }
+    }
+
+    #[cfg(feature = "aws-lc")]
+    /// (This method is for dictionary developers) encode an AVP into a tunnel-password value as bytes.
+    pub fn encode_tunnel_password(
+        &self,
+        secret: &[u8],
+        request_authenticator: &[u8],
+    ) -> Result<(Vec<u8>, Tag), AVPError> {
+        if self.value.len() < 19 || self.value.len() > 243 || (self.value.len() - 3) % 16 != 0 {
+            return Err(AVPError::InvalidAttributeLengthError(
+                "19 <= bytes && bytes <= 242 && (bytes - 3) % 16 == 0".to_owned(),
+                self.value.len(),
+            ));
+        }
+
+        if self.value[1] & 0x80 != 0x80 {
+            return Err(AVPError::InvalidSaltMSBError(self.value[1]));
+        }
+
+        if secret.is_empty() {
+            return Err(AVPError::PasswordSecretMissingError());
+        }
+
+        if request_authenticator.len() != 16 {
+            return Err(AVPError::InvalidRequestAuthenticatorLength());
+        }
+
+        use crate::core::aws_lc;
+
+        let tag = Tag {
+            value: self.value[0],
+        };
+        let mut dec: Vec<u8> = Vec::new();
+        let mut buff: Vec<u8> =
+            [request_authenticator.to_vec(), self.value[1..3].to_vec()].concat();
+
+        for chunk in self.value[3..].chunks(16) {
+            let chunk_vec = chunk.to_vec();
+            let dec_block = aws_lc::md5(&[secret, &buff[..]].concat()).to_vec();
             dec.extend(
                 dec_block
                     .iter()
