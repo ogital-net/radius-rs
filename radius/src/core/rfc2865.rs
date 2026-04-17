@@ -146,11 +146,19 @@
 //! VALUE    NAS-Port-Type            Wireless-802.11        19
 //! ```
 
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
+
+use std::time::SystemTime;
 
 use crate::core::avp::{AVPError, AVPType, AVP};
 use crate::core::packet::Packet;
-use crate::core::vsa::VSA;
+use crate::core::tag::Tag;
+
+use crate::core::ascend;
+use crate::core::cisco;
+use crate::core::juniper;
+use crate::core::microsoft;
+use crate::core::mikrotik;
 
 pub const USER_NAME_TYPE: AVPType = 1;
 /// Delete all of `user_name` values from a packet.
@@ -356,11 +364,6 @@ pub fn lookup_all_framed_ip_address(packet: &Packet) -> Result<Vec<Ipv4Addr>, AV
         vec.push(avp.encode_ipv4()?)
     }
     Ok(vec)
-}
-
-/// Add `vsa_attribute` vsa value to a packet.
-pub fn add_vsa_attribute(packet: &mut Packet, value: &dyn VSA) {
-    packet.add(AVP::from_bytes(VENDOR_SPECIFIC_TYPE, &value.message()));
 }
 
 pub const FRAMED_IP_NETMASK_TYPE: AVPType = 9;

@@ -283,10 +283,7 @@ impl Packet {
      *  +-+-+-+-+-+-+-+-+-+-+-+-+-
      */
     fn marshal_binary(&self) -> Result<Vec<u8>, String> {
-        let encoded_avp = match self.attributes.encode() {
-            Ok(encoded) => encoded,
-            Err(e) => return Err(e),
-        };
+        let encoded_avp = self.attributes.encode()?;
 
         let size = RADIUS_PACKET_HEADER_LENGTH as u16 + encoded_avp.len() as u16;
         if size as usize > MAX_PACKET_LENGTH {
@@ -298,10 +295,7 @@ impl Packet {
         bs.push(self.identifier);
         bs.extend(u16::to_be_bytes(size).to_vec());
         bs.extend(self.authenticator.to_vec());
-        bs.extend(match self.attributes.encode() {
-            Ok(encoded) => encoded,
-            Err(e) => return Err(e),
-        });
+        bs.extend(self.attributes.encode()?);
         Ok(bs)
     }
 

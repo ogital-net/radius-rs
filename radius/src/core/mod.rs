@@ -1,8 +1,13 @@
 //! RADIUS core implementation for server, client and application.
 
+pub mod ascend;
 pub(crate) mod attributes;
 pub mod avp;
+pub mod cisco;
 pub mod code;
+pub mod juniper;
+pub mod microsoft;
+pub mod mikrotik;
 pub mod packet;
 pub mod request;
 pub mod rfc2865;
@@ -29,5 +34,7 @@ pub mod rfc6677;
 pub mod rfc6911;
 pub mod rfc7055;
 pub mod rfc7155;
+pub mod ruckus;
 pub mod tag;
 pub mod vsa;
+pub mod wispr;

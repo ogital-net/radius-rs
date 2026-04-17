@@ -38,18 +38,18 @@ mod tests {
     #[test]
     fn test_is_zero() {
         let tag = Tag { value: 0 };
-        assert_eq!(tag.is_zero(), true);
+        assert!(tag.is_zero());
         let tag = Tag { value: 1 };
-        assert_eq!(tag.is_zero(), false);
+        assert!(!tag.is_zero());
     }
 
     #[test]
     fn test_is_valid_value() {
         let tag = Tag { value: 1 };
-        assert_eq!(tag.is_valid_value(), true);
+        assert!(tag.is_valid_value());
         let tag = Tag { value: 0 };
-        assert_eq!(tag.is_valid_value(), false);
+        assert!(!tag.is_valid_value());
         let tag = Tag { value: 0x20 };
-        assert_eq!(tag.is_valid_value(), false);
+        assert!(!tag.is_valid_value());
     }
 }

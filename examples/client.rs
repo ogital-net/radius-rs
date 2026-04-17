@@ -13,7 +13,7 @@ async fn main() {
 
     let remote_addr: SocketAddr = "127.0.0.1:1812".parse().unwrap();
 
-    let mut req_packet = Packet::new(Code::AccessRequest, &b"secret".to_vec());
+    let mut req_packet = Packet::new(Code::AccessRequest, b"secret".as_ref());
     rfc2865::add_user_name(&mut req_packet, "admin");
     rfc2865::add_user_password(&mut req_packet, b"p@ssw0rd").unwrap();
 

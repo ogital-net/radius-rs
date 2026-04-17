@@ -104,18 +104,18 @@ mod tests {
         let remote_addr: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
         let client = Client::new(None, None);
 
-        let mut req_packet = Packet::new(Code::AccessRequest, &b"secret".to_vec());
+        let mut req_packet = Packet::new(Code::AccessRequest, b"secret".as_ref());
         rfc2865::add_user_name(&mut req_packet, "admin");
         rfc2865::add_user_password(&mut req_packet, b"p@ssw0rd").unwrap();
         let res = client.send_packet(&remote_addr, &req_packet).await.unwrap();
         let maybe_user_name = rfc2865::lookup_user_name(&res);
         let maybe_user_pass = rfc2865::lookup_user_password(&res);
         assert_eq!(res.get_code(), Code::AccessAccept);
-        assert_eq!(maybe_user_name.is_some(), true);
+        assert!(maybe_user_name.is_some());
         assert_eq!(maybe_user_name.unwrap().unwrap(), "admin");
-        assert_eq!(maybe_user_pass.is_none(), true);
+        assert!(maybe_user_pass.is_none());
 
-        let mut req_packet = Packet::new(Code::AccessRequest, &b"secret".to_vec());
+        let mut req_packet = Packet::new(Code::AccessRequest, b"secret".as_ref());
         rfc2865::add_user_name(&mut req_packet, "admin");
         rfc2865::add_user_password(&mut req_packet, b"INVALID-PASS").unwrap();
         let res = client.send_packet(&remote_addr, &req_packet).await.unwrap();
@@ -146,7 +146,7 @@ mod tests {
         let remote_addr: SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
         let client = Client::new(None, Some(Duration::from_secs(0)));
 
-        let mut req_packet = Packet::new(Code::AccessRequest, &b"secret".to_vec());
+        let mut req_packet = Packet::new(Code::AccessRequest, b"secret".as_ref());
         rfc2865::add_user_name(&mut req_packet, "admin");
         rfc2865::add_user_password(&mut req_packet, b"p@ssw0rd").unwrap();
         let res = client.send_packet(&remote_addr, &req_packet).await;

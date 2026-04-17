@@ -60,9 +60,9 @@ impl Client {
     /// # Arguments
     ///
     /// * `connection_timeout` - A duration of connection timeout. If the connection is not established in time, the `ConnectionTimeoutError` occurs.
-    ///                          If this value is `None`, it never timed-out.
+    ///   If this value is `None`, it never timed-out.
     /// * `socket_timeout` - A duration of socket timeout. If the response is not returned in time, the `SocketTimeoutError` occurs.
-    ///                      If this value is `None`, it never timed-out.
+    ///   If this value is `None`, it never timed-out.
     pub fn new(connection_timeout: Option<Duration>, socket_timeout: Option<Duration>) -> Self {
         Client {
             connection_timeout,

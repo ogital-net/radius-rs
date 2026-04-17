@@ -11,6 +11,9 @@ use regex::Regex;
 
 const ATTRIBUTE_KIND: &str = "ATTRIBUTE";
 const VALUE_KIND: &str = "VALUE";
+const VENDOR_KIND: &str = "VENDOR";
+const BEGIN_VENDOR_KIND: &str = "BEGIN-VENDOR";
+const END_VENDOR_KIND: &str = "END-VENDOR";
 
 const RADIUS_VALUE_TYPE: &str = "u32";
 
@@ -65,6 +68,9 @@ impl FromStr for RadiusAttributeValueType {
         match s {
             "string" => Ok(RadiusAttributeValueType::String),
             "octets" => Ok(RadiusAttributeValueType::Octets),
+            "abinary" => Ok(RadiusAttributeValueType::Octets),
+            "byte" => Ok(RadiusAttributeValueType::Octets),
+            "tlv" => Ok(RadiusAttributeValueType::Octets),
             "ipaddr" => Ok(RadiusAttributeValueType::IpAddr),
             "ipv4prefix" => Ok(RadiusAttributeValueType::Ipv4Prefix),
             "ipv6addr" => Ok(RadiusAttributeValueType::Ipv6Addr),
@@ -72,6 +78,7 @@ impl FromStr for RadiusAttributeValueType {
             "ifid" => Ok(RadiusAttributeValueType::IfId),
             "date" => Ok(RadiusAttributeValueType::Date),
             "integer" => Ok(RadiusAttributeValueType::Integer),
+            "uint32" => Ok(RadiusAttributeValueType::Integer),
             "short" => Ok(RadiusAttributeValueType::Short),
             "vsa" => Ok(RadiusAttributeValueType::VSA),
             _ => Err(()),
@@ -916,6 +923,7 @@ fn parse_dict_file(
     let fixed_length_octets_re = Regex::new(r"^octets\[(\d+)]$").unwrap();
 
     let mut radius_attributes: Vec<RadiusAttribute> = Vec::new();
+    let mut seen_attribute_types: HashSet<u8> = HashSet::new();
     let mut radius_attribute_to_values: BTreeMap<String, Vec<RadiusValue>> = BTreeMap::new();
 
     let lines = read_lines(dict_file_path).unwrap();
@@ -928,11 +936,20 @@ fn parse_dict_file(
 
         let items = ws_re.split(line.as_str()).collect::<Vec<&str>>();
 
+        if items.is_empty() {
+            continue;
+        }
+
+        let kind = items[0];
+        match kind {
+            VENDOR_KIND | BEGIN_VENDOR_KIND | END_VENDOR_KIND => continue,
+            _ => {}
+        }
+
         if items.len() < 4 {
             return Err("the number of items is lacked in a line".to_owned());
         }
 
-        let kind = items[0];
         match kind {
             ATTRIBUTE_KIND => {
                 let mut encryption_type: Option<EncryptionType> = None;
@@ -991,9 +1008,17 @@ fn parse_dict_file(
                     }
                 };
 
+                let parsed_typ: u8 = match items[2].parse() {
+                    Ok(t) => t,
+                    Err(_) => continue, // skip sub-attributes with dotted type IDs (e.g. "153.2")
+                };
+                if !seen_attribute_types.insert(parsed_typ) {
+                    continue; // skip duplicate attribute type numbers
+                }
+
                 radius_attributes.push(RadiusAttribute {
                     name: items[1].to_string(),
-                    typ: items[2].parse().unwrap(),
+                    typ: parsed_typ,
                     value_type: typ,
                     fixed_octets_length,
                     concat_octets,
@@ -1005,9 +1030,17 @@ fn parse_dict_file(
                 let name = items[2].to_string();
 
                 let value = trailing_comment_re.replace(items[3], "").to_string();
+                let parsed_value = if let Some(hex) = value
+                    .strip_prefix("0x")
+                    .or_else(|| value.strip_prefix("0X"))
+                {
+                    u16::from_str_radix(hex, 16).unwrap()
+                } else {
+                    value.parse().unwrap()
+                };
                 let radius_value = RadiusValue {
                     name,
-                    value: value.parse().unwrap(),
+                    value: parsed_value,
                 };
 
                 match radius_attribute_to_values.get_mut(&attribute_name) {
