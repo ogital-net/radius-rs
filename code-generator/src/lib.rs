@@ -5,7 +5,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::{io, process};
 
-use inflector::Inflector;
+use heck::{ToPascalCase, ToShoutySnakeCase, ToSnakeCase};
 use regex::Regex;
 
 const ATTRIBUTE_KIND: &str = "ATTRIBUTE";
@@ -39,12 +39,16 @@ struct RadiusAttribute {
     has_tag: bool,
     /// Set when this attribute is inside a BEGIN-VENDOR / END-VENDOR block.
     vendor_id: Option<u32>,
+    /// Comment lines from the dictionary that immediately precede this attribute.
+    comment: Vec<String>,
 }
 
 #[derive(Debug)]
 struct RadiusValue {
     name: String,
     value: u16,
+    /// Comment lines from the dictionary that immediately precede this value.
+    comment: Vec<String>,
 }
 
 #[allow(clippy::upper_case_acronyms)]
@@ -110,7 +114,7 @@ pub fn generate(out_dir: &Path, dict_file_paths: &[&Path]) {
     let mut attribute_name_to_rfc_name: HashMap<String, String> = HashMap::new();
 
     for dict_file_path in dict_file_paths {
-        let ((radius_attributes, radius_attribute_to_values_map), dict_file_lines) =
+        let (radius_attributes, radius_attribute_to_values_map) =
             parse_dict_file(dict_file_path).unwrap();
 
         let value_defined_attributes_set = radius_attribute_to_values_map
@@ -133,13 +137,7 @@ pub fn generate(out_dir: &Path, dict_file_paths: &[&Path]) {
         let rfc_name = dict_file_path.extension().unwrap().to_str().unwrap();
         let mut w = BufWriter::new(File::create(out_dir.join(format!("{rfc_name}.rs"))).unwrap());
 
-        generate_header(
-            &mut w,
-            &needed_rfc_names,
-            rfc_name,
-            dict_file_lines,
-            &radius_attributes,
-        );
+        generate_header(&mut w, &needed_rfc_names, rfc_name, &radius_attributes);
         generate_attributes_code(&mut w, &radius_attributes, &value_defined_attributes_set);
         generate_values_code(
             &mut w,
@@ -185,7 +183,6 @@ fn generate_header(
     w: &mut BufWriter<File>,
     rfc_names: &[String],
     rfc_name: &str,
-    dict_file_lines: io::Lines<io::BufReader<File>>,
     attrs: &[RadiusAttribute],
 ) {
     let needs_ipv4 = attrs
@@ -269,19 +266,10 @@ fn generate_header(
 #![allow(clippy::double_must_use)]
 
 //! Utility for {rfc_name} packet.
-//!
-//! This module handles the packet according to the following definition:
-//! ```text
-//! {dict_file_contents}
-//! ```
 
 {net_import}{time_import}{avp_import}{packet_import}{tag_import}
 ",
         rfc_name = rfc_name,
-        dict_file_contents = dict_file_lines
-            .map(|line| format!("//! {}", line.unwrap().replace('\t', "    ")))
-            .collect::<Vec<_>>()
-            .join("\n"),
     );
 
     w.write_all(code.as_bytes()).unwrap();
@@ -302,6 +290,17 @@ fn generate_values_code(
     }
 }
 
+/// Emit dictionary comment lines as Rust inline comments (`//`).
+///
+/// Each raw dictionary line (starting with `#`) is stripped of its leading `#` and
+/// emitted as a `//` line so the context is visible to source readers.
+fn emit_comment(w: &mut BufWriter<File>, comments: &[String]) {
+    for line in comments {
+        let stripped = line.strip_prefix('#').unwrap_or("").trim_end();
+        writeln!(w, "//{stripped}").unwrap();
+    }
+}
+
 fn generate_values_for_attribute_code(
     w: &mut BufWriter<File>,
     attr: &str,
@@ -316,12 +315,13 @@ fn generate_values_for_attribute_code(
     }
 
     for v in values {
+        emit_comment(w, &v.comment);
         if let Some(rfc_name) = maybe_rfc_name {
             w.write_all(
                 format!(
                 "pub const {type_name_prefix}_{value_name}: {rfc_name}::{type_name} = {value};\n",
-                type_name_prefix = type_name.to_screaming_snake_case(),
-                value_name = v.name.to_screaming_snake_case(),
+                type_name_prefix = type_name.to_shouty_snake_case(),
+                value_name = v.name.to_shouty_snake_case(),
                 rfc_name = rfc_name,
                 type_name = type_name,
                 value = v.value,
@@ -333,8 +333,8 @@ fn generate_values_for_attribute_code(
             w.write_all(
                 format!(
                     "pub const {type_name_prefix}_{value_name}: {type_name} = {value};\n",
-                    type_name_prefix = type_name.to_screaming_snake_case(),
-                    value_name = v.name.to_screaming_snake_case(),
+                    type_name_prefix = type_name.to_shouty_snake_case(),
+                    value_name = v.name.to_shouty_snake_case(),
                     type_name = type_name,
                     value = v.value,
                 )
@@ -363,10 +363,11 @@ fn generate_attribute_code(
 ) {
     let attr_name = attr.name.clone();
     let method_identifier = attr_name.to_snake_case();
+    emit_comment(w, &attr.comment);
 
     if let Some(vendor_id) = attr.vendor_id {
         // VSA sub-attribute: use a VENDOR_TYPE constant (u8) and VSA-aware generators.
-        let type_identifier = format!("{}_VENDOR_TYPE", attr_name.to_screaming_snake_case());
+        let type_identifier = format!("{}_VENDOR_TYPE", attr_name.to_shouty_snake_case());
         generate_common_attribute_code(w, &attr_name, &type_identifier, attr.typ, Some(vendor_id));
         match attr.value_type {
             RadiusAttributeValueType::String => {
@@ -495,7 +496,7 @@ fn generate_attribute_code(
     }
 
     // Standard (non-vendor) attribute path — unchanged from before.
-    let type_identifier = format!("{}_TYPE", attr_name.to_screaming_snake_case());
+    let type_identifier = format!("{}_TYPE", attr_name.to_shouty_snake_case());
     let type_value = attr.typ;
 
     generate_common_attribute_code(w, &attr_name, &type_identifier, type_value, None);
@@ -1855,10 +1856,9 @@ pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<u16>, AVPEr
 
 type DictParsed = (Vec<RadiusAttribute>, BTreeMap<String, Vec<RadiusValue>>);
 
-fn parse_dict_file(
-    dict_file_path: &Path,
-) -> Result<(DictParsed, io::Lines<io::BufReader<File>>), String> {
-    let line_filter_re = Regex::new(r"^(?:#.*|)$").unwrap();
+fn parse_dict_file(dict_file_path: &Path) -> Result<DictParsed, String> {
+    let blank_re = Regex::new(r"^\s*$").unwrap();
+    let comment_re = Regex::new(r"^#").unwrap();
     let ws_re = Regex::new(r"\s+").unwrap();
     let trailing_comment_re = Regex::new(r"\s*?#.+?$").unwrap();
     let fixed_length_octets_re = Regex::new(r"^octets\[(\d+)]$").unwrap();
@@ -1872,11 +1872,24 @@ fn parse_dict_file(
     let mut vendor_id_map: HashMap<String, u32> = HashMap::new();
     let mut current_vendor_id: Option<u32> = None;
 
+    // Comment tracking: accumulate comment lines between data lines.
+    // Blank lines clear the buffer, so file-level header comments (copyright etc.) that are
+    // separated from the first attribute by a blank line are naturally discarded.
+    let mut pending_comments: Vec<String> = Vec::new();
+
     let lines = read_lines(dict_file_path).unwrap();
     for line_result in lines {
         let line = line_result.unwrap();
 
-        if line_filter_re.is_match(line.as_str()) {
+        if blank_re.is_match(line.as_str()) {
+            // Blank lines reset the pending comment buffer so that section headers
+            // separated from the next item by a blank line are not attached.
+            pending_comments.clear();
+            continue;
+        }
+
+        if comment_re.is_match(line.as_str()) {
+            pending_comments.push(line);
             continue;
         }
 
@@ -1979,6 +1992,7 @@ fn parse_dict_file(
                     concat_octets,
                     has_tag,
                     vendor_id: current_vendor_id,
+                    comment: std::mem::take(&mut pending_comments),
                 });
             }
             VALUE_KIND => {
@@ -1997,6 +2011,7 @@ fn parse_dict_file(
                 let radius_value = RadiusValue {
                     name,
                     value: parsed_value,
+                    comment: std::mem::take(&mut pending_comments),
                 };
 
                 match radius_attribute_to_values.get_mut(&attribute_name) {
@@ -2013,8 +2028,5 @@ fn parse_dict_file(
         }
     }
 
-    Ok((
-        (radius_attributes, radius_attribute_to_values),
-        read_lines(dict_file_path).unwrap(),
-    ))
+    Ok((radius_attributes, radius_attribute_to_values))
 }
