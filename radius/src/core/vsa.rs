@@ -18,7 +18,7 @@ pub trait VSA {
 /// `StringVSA` represents the VSA according to the RFC 2865.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StringVSA {
-    vendor_id: Vec<u8>,
+    vendor_id: [u8; 4],
     vendor_type: u8,
     length: u8,
     value: Vec<u8>,
@@ -31,7 +31,7 @@ impl StringVSA {
     #[allow(clippy::cast_possible_truncation)]
     pub fn new(vendor_id: i32, vendor_type: u8, value: &str) -> StringVSA {
         StringVSA {
-            vendor_id: vendor_id.to_be_bytes().to_vec(),
+            vendor_id: vendor_id.to_be_bytes(),
             vendor_type,
             /*
              * Ref: RFC 4679 - https://datatracker.ietf.org/doc/html/rfc4679
@@ -85,7 +85,7 @@ impl VSA for StringVSA {
 /// `TaggedStringVSA` represents the VSA which has a tag value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TaggedStringVSA {
-    vendor_id: Vec<u8>,
+    vendor_id: [u8; 4],
     vendor_type: u8,
     length: u8,
     tag: u8,
@@ -99,7 +99,7 @@ impl TaggedStringVSA {
     #[allow(clippy::cast_possible_truncation)]
     pub fn new(vendor_id: i32, vendor_type: u8, tag: u8, value: &str) -> TaggedStringVSA {
         TaggedStringVSA {
-            vendor_id: vendor_id.to_be_bytes().to_vec(),
+            vendor_id: vendor_id.to_be_bytes(),
             vendor_type,
             /*
              * Ref: RFC 4679 - https://datatracker.ietf.org/doc/html/rfc4679

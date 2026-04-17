@@ -201,10 +201,10 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
         };
 
         let key = RequestKey {
-            ip: remote_addr.to_string(),
+            addr: remote_addr,
             identifier: packet.get_identifier(),
         };
-        let key_for_remove = key.clone();
+        let key_for_remove = key;
 
         {
             let mut undergoing_requests = undergoing_requests_lock.write().unwrap();
@@ -223,7 +223,7 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
         {
             Ok(_) => {}
             Err(e) => {
-                println!("{e:?}");
+                error!("{e:?}");
             }
         }
 
@@ -268,8 +268,8 @@ pub trait SecretProvider: 'static + Sync + Send {
     fn fetch_secret(&self, remote_addr: SocketAddr) -> Result<Vec<u8>, SecretProviderError>;
 }
 
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 struct RequestKey {
-    ip: String,
+    addr: SocketAddr,
     identifier: u8,
 }

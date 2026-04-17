@@ -338,13 +338,6 @@ impl AVP {
          *  https://tools.ietf.org/html/rfc2868#section-3.5
          */
 
-        if request_authenticator.len() > 240 {
-            return Err(AVPError::InvalidAttributeLengthError(
-                "240 bytes".to_owned(),
-                request_authenticator.len(),
-            ));
-        }
-
         if secret.is_empty() {
             return Err(AVPError::PasswordSecretMissingError());
         }
@@ -421,10 +414,9 @@ impl AVP {
         }
 
         let (int_bytes, _) = self.value.split_at(U32_SIZE);
-        match int_bytes.try_into() {
-            Ok(boxed_array) => Ok(u32::from_be_bytes(boxed_array)),
-            Err(e) => Err(AVPError::DecodingError(e.to_string())),
-        }
+        // SAFETY: length was validated above; try_into cannot fail here.
+        let array: [u8; U32_SIZE] = int_bytes.try_into().unwrap();
+        Ok(u32::from_be_bytes(array))
     }
 
     /// (This method is for dictionary developers) encode an AVP into a u16 value.
@@ -442,10 +434,9 @@ impl AVP {
         }
 
         let (int_bytes, _) = self.value.split_at(U16_SIZE);
-        match int_bytes.try_into() {
-            Ok(boxed_array) => Ok(u16::from_be_bytes(boxed_array)),
-            Err(e) => Err(AVPError::DecodingError(e.to_string())),
-        }
+        // SAFETY: length was validated above; try_into cannot fail here.
+        let array: [u8; U16_SIZE] = int_bytes.try_into().unwrap();
+        Ok(u16::from_be_bytes(array))
     }
 
     /// (This method is for dictionary developers) encode an AVP into a tag and u32 value.
@@ -478,10 +469,9 @@ impl AVP {
             ));
         }
         let (int_bytes, _) = self.value[1..].split_at(U32_SIZE);
-        match int_bytes.try_into() {
-            Ok(boxed_array) => Ok((u32::from_be_bytes(boxed_array), tag)),
-            Err(e) => Err(AVPError::DecodingError(e.to_string())),
-        }
+        // SAFETY: length was validated above; try_into cannot fail here.
+        let array: [u8; U32_SIZE] = int_bytes.try_into().unwrap();
+        Ok((u32::from_be_bytes(array), tag))
     }
 
     /// (This method is for dictionary developers) encode an AVP into a string value.
@@ -557,10 +547,9 @@ impl AVP {
         }
 
         let (int_bytes, _) = self.value.split_at(IPV4_SIZE);
-        match int_bytes.try_into() {
-            Ok::<[u8; IPV4_SIZE], _>(boxed_array) => Ok(Ipv4Addr::from(boxed_array)),
-            Err(e) => Err(AVPError::DecodingError(e.to_string())),
-        }
+        // SAFETY: length was validated above; try_into cannot fail here.
+        let array: [u8; IPV4_SIZE] = int_bytes.try_into().unwrap();
+        Ok(Ipv4Addr::from(array))
     }
 
     /// (This method is for dictionary developers) encode an AVP into Ipv4-prefix value.
@@ -594,10 +583,9 @@ impl AVP {
         }
 
         let (int_bytes, _) = self.value.split_at(IPV6_SIZE);
-        match int_bytes.try_into() {
-            Ok::<[u8; IPV6_SIZE], _>(boxed_array) => Ok(Ipv6Addr::from(boxed_array)),
-            Err(e) => Err(AVPError::DecodingError(e.to_string())),
-        }
+        // SAFETY: length was validated above; try_into cannot fail here.
+        let array: [u8; IPV6_SIZE] = int_bytes.try_into().unwrap();
+        Ok(Ipv6Addr::from(array))
     }
 
     /// (This method is for dictionary developers) encode an AVP into Ipv6-prefix value.
@@ -670,8 +658,7 @@ impl AVP {
     ///
     /// # Errors
     ///
-    /// Returns [`AVPError::InvalidAttributeLengthError`] if the value is not exactly 4 bytes, or
-    /// [`AVPError::DecodingError`] if the bytes cannot be decoded.
+    /// Returns [`AVPError::InvalidAttributeLengthError`] if the value is not exactly 4 bytes.
     pub fn encode_date(&self) -> Result<SystemTime, AVPError> {
         const U32_SIZE: usize = std::mem::size_of::<u32>();
         if self.value.len() != U32_SIZE {
@@ -682,13 +669,10 @@ impl AVP {
         }
 
         let (int_bytes, _) = self.value.split_at(U32_SIZE);
-        match int_bytes.try_into() {
-            Ok(boxed_array) => {
-                let timestamp = u32::from_be_bytes(boxed_array);
-                Ok(UNIX_EPOCH + Duration::from_secs(u64::from(timestamp)))
-            }
-            Err(e) => Err(AVPError::DecodingError(e.to_string())),
-        }
+        // SAFETY: length was validated above; try_into cannot fail here.
+        let array: [u8; U32_SIZE] = int_bytes.try_into().unwrap();
+        let timestamp = u32::from_be_bytes(array);
+        Ok(UNIX_EPOCH + Duration::from_secs(u64::from(timestamp)))
     }
 
     /// (This method is for dictionary developers) encode an AVP into a tunnel-password value as bytes.
@@ -704,7 +688,7 @@ impl AVP {
     ) -> Result<(Vec<u8>, Tag), AVPError> {
         if self.value.len() < 19 || self.value.len() > 243 || (self.value.len() - 3) % 16 != 0 {
             return Err(AVPError::InvalidAttributeLengthError(
-                "19 <= bytes && bytes <= 242 && (bytes - 3) % 16 == 0".to_owned(),
+                "19 <= bytes && bytes <= 243 && (bytes - 3) % 16 == 0".to_owned(),
                 self.value.len(),
             ));
         }
