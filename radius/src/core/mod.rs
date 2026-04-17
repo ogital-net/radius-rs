@@ -7,6 +7,7 @@ pub mod avp;
 pub(crate) mod aws_lc;
 pub mod cisco;
 pub mod code;
+pub(crate) mod crypto;
 pub mod juniper;
 pub mod microsoft;
 pub mod mikrotik;
