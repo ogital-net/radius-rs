@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 use std::fmt::Debug;
 
-use rand::Rng;
+use rand::RngExt;
 use thiserror::Error;
 
 use crate::core::attributes::Attributes;
@@ -75,13 +75,13 @@ impl Packet {
     }
 
     fn _new(code: Code, secret: &[u8], maybe_identifier: Option<u8>) -> Self {
-        let mut rng = rand::thread_rng();
-        let authenticator = (0..16).map(|_| rng.gen()).collect::<Vec<u8>>();
+        let mut rng = rand::rng();
+        let authenticator = (0..16).map(|_| rng.random()).collect::<Vec<u8>>();
         Packet {
             code: code.to_owned(),
             identifier: match maybe_identifier {
                 Some(ident) => ident,
-                None => rng.gen(),
+                None => rng.random(),
             },
             authenticator,
             secret: secret.to_owned(),

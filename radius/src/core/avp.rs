@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::RngExt;
 use std::convert::TryInto;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -375,8 +375,8 @@ impl AVP {
             ));
         }
 
-        let mut rng = rand::thread_rng();
-        let salt: [u8; 2] = [rng.gen::<u8>() | 0x80, rng.gen::<u8>()];
+        let mut rng = rand::rng();
+        let salt: [u8; 2] = [rng.random::<u8>() | 0x80, rng.random::<u8>()];
 
         if secret.is_empty() {
             return Err(AVPError::PasswordSecretMissingError());
@@ -468,8 +468,8 @@ impl AVP {
             ));
         }
 
-        let mut rng = rand::thread_rng();
-        let salt: [u8; 2] = [rng.gen::<u8>() | 0x80, rng.gen::<u8>()];
+        let mut rng = rand::rng();
+        let salt: [u8; 2] = [rng.random::<u8>() | 0x80, rng.random::<u8>()];
 
         if secret.is_empty() {
             return Err(AVPError::PasswordSecretMissingError());
