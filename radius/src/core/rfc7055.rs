@@ -19,41 +19,8 @@
 //! ATTRIBUTE    GSS-Acceptor-Realm-Name            167    string
 //! ```
 
-use std::net::{Ipv4Addr, Ipv6Addr};
-
-use std::time::SystemTime;
-
 use crate::core::avp::{AVPError, AVPType, AVP};
 use crate::core::packet::Packet;
-use crate::core::tag::Tag;
-
-use crate::core::ascend;
-use crate::core::cisco;
-use crate::core::juniper;
-use crate::core::microsoft;
-use crate::core::mikrotik;
-use crate::core::rfc2865;
-use crate::core::rfc2866;
-use crate::core::rfc2867;
-use crate::core::rfc2868;
-use crate::core::rfc2869;
-use crate::core::rfc3162;
-use crate::core::rfc3576;
-use crate::core::rfc3580;
-use crate::core::rfc4072;
-use crate::core::rfc4372;
-use crate::core::rfc4603;
-use crate::core::rfc4675;
-use crate::core::rfc4818;
-use crate::core::rfc4849;
-use crate::core::rfc5090;
-use crate::core::rfc5176;
-use crate::core::rfc5607;
-use crate::core::rfc5904;
-use crate::core::rfc6519;
-use crate::core::rfc6572;
-use crate::core::rfc6677;
-use crate::core::rfc6911;
 
 pub const GSS_ACCEPTOR_SERVICE_NAME_TYPE: AVPType = 164;
 /// Delete all of `gss_acceptor_service_name` values from a packet.

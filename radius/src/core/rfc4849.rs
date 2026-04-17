@@ -17,32 +17,8 @@
 //! ATTRIBUTE    NAS-Filter-Rule                92    string
 //! ```
 
-use std::net::{Ipv4Addr, Ipv6Addr};
-
-use std::time::SystemTime;
-
 use crate::core::avp::{AVPError, AVPType, AVP};
 use crate::core::packet::Packet;
-use crate::core::tag::Tag;
-
-use crate::core::ascend;
-use crate::core::cisco;
-use crate::core::juniper;
-use crate::core::microsoft;
-use crate::core::mikrotik;
-use crate::core::rfc2865;
-use crate::core::rfc2866;
-use crate::core::rfc2867;
-use crate::core::rfc2868;
-use crate::core::rfc2869;
-use crate::core::rfc3162;
-use crate::core::rfc3576;
-use crate::core::rfc3580;
-use crate::core::rfc4072;
-use crate::core::rfc4372;
-use crate::core::rfc4603;
-use crate::core::rfc4675;
-use crate::core::rfc4818;
 
 pub const NAS_FILTER_RULE_TYPE: AVPType = 92;
 /// Delete all of `nas_filter_rule` values from a packet.

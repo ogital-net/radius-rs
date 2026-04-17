@@ -8,84 +8,76 @@
 //! # Copyright (C) 2019 The FreeRADIUS Server project and contributors
 //! # This work is licensed under CC-BY version 4.0 https://creativecommons.org/licenses/by/4.0
 //! #
-//! #	http://www.mikrotik.com
+//! #    http://www.mikrotik.com
 //! #
-//! #	http://www.mikrotik.com/documentation//manual_2.9/dictionary
+//! #    http://www.mikrotik.com/documentation//manual_2.9/dictionary
 //! #
-//! #	Do NOT follow their instructions and replace the dictionary
-//! #	in /etc/raddb with the one that they supply.  It is NOT necessary.
+//! #    Do NOT follow their instructions and replace the dictionary
+//! #    in /etc/raddb with the one that they supply.  It is NOT necessary.
 //! #
-//! #	On top of that, the sample dictionary file they provide
-//! #	DOES NOT WORK.  Do NOT use it.
+//! #    On top of that, the sample dictionary file they provide
+//! #    DOES NOT WORK.  Do NOT use it.
 //! #
-//! #	$Id$
+//! #    $Id$
 //! #
-//! VENDOR		Mikrotik			14988
+//! VENDOR        Mikrotik            14988
 //!
-//! BEGIN-VENDOR	Mikrotik
+//! BEGIN-VENDOR    Mikrotik
 //!
-//! ATTRIBUTE	Mikrotik-Recv-Limit			1	integer
-//! ATTRIBUTE	Mikrotik-Xmit-Limit			2	integer
+//! ATTRIBUTE    Mikrotik-Recv-Limit            1    integer
+//! ATTRIBUTE    Mikrotik-Xmit-Limit            2    integer
 //!
 //! # this attribute is unused
-//! ATTRIBUTE	Mikrotik-Group				3	string
+//! ATTRIBUTE    Mikrotik-Group                3    string
 //!
-//! ATTRIBUTE	Mikrotik-Wireless-Forward		4	integer
-//! ATTRIBUTE	Mikrotik-Wireless-Skip-Dot1x		5	integer
-//! ATTRIBUTE	Mikrotik-Wireless-Enc-Algo		6	integer
-//! ATTRIBUTE	Mikrotik-Wireless-Enc-Key		7	string
-//! ATTRIBUTE	Mikrotik-Rate-Limit			8	string
-//! ATTRIBUTE	Mikrotik-Realm				9	string
-//! ATTRIBUTE	Mikrotik-Host-IP			10	ipaddr
-//! ATTRIBUTE	Mikrotik-Mark-Id			11	string
-//! ATTRIBUTE	Mikrotik-Advertise-URL			12	string
-//! ATTRIBUTE	Mikrotik-Advertise-Interval		13	integer
-//! ATTRIBUTE	Mikrotik-Recv-Limit-Gigawords		14	integer
-//! ATTRIBUTE	Mikrotik-Xmit-Limit-Gigawords		15	integer
-//! ATTRIBUTE	Mikrotik-Wireless-PSK			16	string
-//! ATTRIBUTE	Mikrotik-Total-Limit			17	integer
-//! ATTRIBUTE	Mikrotik-Total-Limit-Gigawords		18	integer
-//! ATTRIBUTE	Mikrotik-Address-List			19	string
-//! ATTRIBUTE	Mikrotik-Wireless-MPKey			20	string
-//! ATTRIBUTE	Mikrotik-Wireless-Comment		21	string
-//! ATTRIBUTE	Mikrotik-Delegated-IPv6-Pool		22	string
-//! ATTRIBUTE	Mikrotik-DHCP-Option-Set		23	string
-//! ATTRIBUTE	Mikrotik-DHCP-Option-Param-STR1		24	string
-//! ATTRIBUTE	Mikrotik-DHCP-Option-Param-STR2		25	string
-//! ATTRIBUTE	Mikrotik-DHCP-Option-ParamSTR2 		25	string
-//! ATTRIBUTE	Mikrotik-Wireless-VLANID		26	integer
-//! ATTRIBUTE	Mikrotik-Wireless-VLANIDtype		27	integer
-//! ATTRIBUTE	Mikrotik-Wireless-VLANID-Type 		27	integer
-//! ATTRIBUTE	Mikrotik-Wireless-Minsignal		28	string
-//! ATTRIBUTE	Mikrotik-Wireless-Maxsignal		29	string
-//! ATTRIBUTE	Mikrotik-Switching-Filter		30	string
+//! ATTRIBUTE    Mikrotik-Wireless-Forward        4    integer
+//! ATTRIBUTE    Mikrotik-Wireless-Skip-Dot1x        5    integer
+//! ATTRIBUTE    Mikrotik-Wireless-Enc-Algo        6    integer
+//! ATTRIBUTE    Mikrotik-Wireless-Enc-Key        7    string
+//! ATTRIBUTE    Mikrotik-Rate-Limit            8    string
+//! ATTRIBUTE    Mikrotik-Realm                9    string
+//! ATTRIBUTE    Mikrotik-Host-IP            10    ipaddr
+//! ATTRIBUTE    Mikrotik-Mark-Id            11    string
+//! ATTRIBUTE    Mikrotik-Advertise-URL            12    string
+//! ATTRIBUTE    Mikrotik-Advertise-Interval        13    integer
+//! ATTRIBUTE    Mikrotik-Recv-Limit-Gigawords        14    integer
+//! ATTRIBUTE    Mikrotik-Xmit-Limit-Gigawords        15    integer
+//! ATTRIBUTE    Mikrotik-Wireless-PSK            16    string
+//! ATTRIBUTE    Mikrotik-Total-Limit            17    integer
+//! ATTRIBUTE    Mikrotik-Total-Limit-Gigawords        18    integer
+//! ATTRIBUTE    Mikrotik-Address-List            19    string
+//! ATTRIBUTE    Mikrotik-Wireless-MPKey            20    string
+//! ATTRIBUTE    Mikrotik-Wireless-Comment        21    string
+//! ATTRIBUTE    Mikrotik-Delegated-IPv6-Pool        22    string
+//! ATTRIBUTE    Mikrotik-DHCP-Option-Set        23    string
+//! ATTRIBUTE    Mikrotik-DHCP-Option-Param-STR1        24    string
+//! ATTRIBUTE    Mikrotik-DHCP-Option-Param-STR2        25    string
+//! ATTRIBUTE    Mikrotik-DHCP-Option-ParamSTR2         25    string
+//! ATTRIBUTE    Mikrotik-Wireless-VLANID        26    integer
+//! ATTRIBUTE    Mikrotik-Wireless-VLANIDtype        27    integer
+//! ATTRIBUTE    Mikrotik-Wireless-VLANID-Type         27    integer
+//! ATTRIBUTE    Mikrotik-Wireless-Minsignal        28    string
+//! ATTRIBUTE    Mikrotik-Wireless-Maxsignal        29    string
+//! ATTRIBUTE    Mikrotik-Switching-Filter        30    string
 //!
 //! # MikroTik Values
 //!
-//! VALUE	Mikrotik-Wireless-Enc-Algo	No-encryption		0
-//! VALUE	Mikrotik-Wireless-Enc-Algo	40-bit-WEP		1
-//! VALUE	Mikrotik-Wireless-Enc-Algo	104-bit-WEP		2
-//! VALUE	Mikrotik-Wireless-Enc-Algo	AES-CCM			3
-//! VALUE	Mikrotik-Wireless-Enc-Algo	TKIP			4
+//! VALUE    Mikrotik-Wireless-Enc-Algo    No-encryption        0
+//! VALUE    Mikrotik-Wireless-Enc-Algo    40-bit-WEP        1
+//! VALUE    Mikrotik-Wireless-Enc-Algo    104-bit-WEP        2
+//! VALUE    Mikrotik-Wireless-Enc-Algo    AES-CCM            3
+//! VALUE    Mikrotik-Wireless-Enc-Algo    TKIP            4
 //!
-//! VALUE	Mikrotik-Wireless-VLANIDtype	802.1q			0
-//! VALUE	Mikrotik-Wireless-VLANIDtype	802.1ad			1
+//! VALUE    Mikrotik-Wireless-VLANIDtype    802.1q            0
+//! VALUE    Mikrotik-Wireless-VLANIDtype    802.1ad            1
 //!
-//! END-VENDOR	Mikrotik
+//! END-VENDOR    Mikrotik
 //! ```
 
-use std::net::{Ipv4Addr, Ipv6Addr};
-
-use std::time::SystemTime;
+use std::net::Ipv4Addr;
 
 use crate::core::avp::{AVPError, AVPType, AVP};
 use crate::core::packet::Packet;
-use crate::core::tag::Tag;
-
-use crate::core::ascend;
-use crate::core::cisco;
-use crate::core::juniper;
-use crate::core::microsoft;
 
 pub const MIKROTIK_RECV_LIMIT_TYPE: AVPType = 1;
 /// Delete all of `mikrotik_recv_limit` values from a packet.

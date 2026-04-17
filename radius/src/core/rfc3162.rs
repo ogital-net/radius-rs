@@ -22,24 +22,10 @@
 //! ATTRIBUTE    Framed-IPV6-Pool            100    string
 //! ```
 
-use std::net::{Ipv4Addr, Ipv6Addr};
-
-use std::time::SystemTime;
+use std::net::Ipv6Addr;
 
 use crate::core::avp::{AVPError, AVPType, AVP};
 use crate::core::packet::Packet;
-use crate::core::tag::Tag;
-
-use crate::core::ascend;
-use crate::core::cisco;
-use crate::core::juniper;
-use crate::core::microsoft;
-use crate::core::mikrotik;
-use crate::core::rfc2865;
-use crate::core::rfc2866;
-use crate::core::rfc2867;
-use crate::core::rfc2868;
-use crate::core::rfc2869;
 
 pub const NAS_IPV6_ADDRESS_TYPE: AVPType = 95;
 /// Delete all of `nas_ipv6_address` values from a packet.

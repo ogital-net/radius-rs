@@ -10,91 +10,85 @@
 //! #
 //! #  dictionary.juniper
 //! #
-//! #	As posted to the list by Eric Kilfoil <ekilfoil@uslec.net>
+//! #    As posted to the list by Eric Kilfoil <ekilfoil@uslec.net>
 //! #
-//! # Version:	$Id$
+//! # Version:    $Id$
 //! #
 //!
-//! VENDOR		Juniper				2636
+//! VENDOR        Juniper                2636
 //!
-//! BEGIN-VENDOR	Juniper
+//! BEGIN-VENDOR    Juniper
 //!
-//! ATTRIBUTE	Juniper-Local-User-Name			1	string
-//! ATTRIBUTE	Juniper-Allow-Commands			2	string
-//! ATTRIBUTE	Juniper-Deny-Commands			3	string
-//! ATTRIBUTE	Juniper-Allow-Configuration		4	string
-//! ATTRIBUTE	Juniper-Deny-Configuration		5	string
+//! ATTRIBUTE    Juniper-Local-User-Name            1    string
+//! ATTRIBUTE    Juniper-Allow-Commands            2    string
+//! ATTRIBUTE    Juniper-Deny-Commands            3    string
+//! ATTRIBUTE    Juniper-Allow-Configuration        4    string
+//! ATTRIBUTE    Juniper-Deny-Configuration        5    string
 //!
-//! ATTRIBUTE	Juniper-Interactive-Command		8	string
-//! ATTRIBUTE	Juniper-Configuration-Change		9	string
-//! ATTRIBUTE	Juniper-User-Permissions		10	string
-//! ATTRIBUTE	Juniper-Junosspace-Profile		11	string
-//! ATTRIBUTE	Juniper-Junosspace-Profiles		11	string
+//! ATTRIBUTE    Juniper-Interactive-Command        8    string
+//! ATTRIBUTE    Juniper-Configuration-Change        9    string
+//! ATTRIBUTE    Juniper-User-Permissions        10    string
+//! ATTRIBUTE    Juniper-Junosspace-Profile        11    string
+//! ATTRIBUTE    Juniper-Junosspace-Profiles        11    string
 //!
-//! ATTRIBUTE	Juniper-CTP-Group			21	integer
-//! ATTRIBUTE	Juniper-CTPView-APP-Group		22	integer
-//! ATTRIBUTE	Juniper-CTPView-OS-Group		23	integer
+//! ATTRIBUTE    Juniper-CTP-Group            21    integer
+//! ATTRIBUTE    Juniper-CTPView-APP-Group        22    integer
+//! ATTRIBUTE    Juniper-CTPView-OS-Group        23    integer
 //!
-//! ATTRIBUTE	Juniper-Primary-Dns			31	ipaddr
-//! ATTRIBUTE	Juniper-Primary-Wins			32	ipaddr
-//! ATTRIBUTE	Juniper-Secondary-Dns			33	ipaddr
-//! ATTRIBUTE	Juniper-Secondary-Wins			34	ipaddr
-//! ATTRIBUTE	Juniper-Interface-id			35	string
-//! ATTRIBUTE	Juniper-Ip-Pool-Name			36	string
-//! ATTRIBUTE	Juniper-Keep-Alive			37	integer
-//! ATTRIBUTE	Juniper-CoS-Traffic-Control-Profile	38	string
-//! ATTRIBUTE	Juniper-CoS-Parameter			39	string
-//! ATTRIBUTE	Juniper-encapsulation-overhead		40	integer
-//! ATTRIBUTE	Juniper-cell-overhead			41	integer
-//! ATTRIBUTE	Juniper-tx-connect-speed		42	integer
-//! ATTRIBUTE	Juniper-rx-connect-speed		43	integer
-//! ATTRIBUTE	Juniper-Firewall-filter-name		44	string
-//! ATTRIBUTE	Juniper-Policer-Parameter		45	string
-//! ATTRIBUTE	Juniper-Local-Group-Name		46	string
-//! ATTRIBUTE	Juniper-Local-Interface			47	string
-//! ATTRIBUTE	Juniper-Switching-Filter		48	string
-//! ATTRIBUTE	Juniper-VoIP-Vlan			49	string
-//! ATTRIBUTE	Juniper-CWA-Redirect			50	string
+//! ATTRIBUTE    Juniper-Primary-Dns            31    ipaddr
+//! ATTRIBUTE    Juniper-Primary-Wins            32    ipaddr
+//! ATTRIBUTE    Juniper-Secondary-Dns            33    ipaddr
+//! ATTRIBUTE    Juniper-Secondary-Wins            34    ipaddr
+//! ATTRIBUTE    Juniper-Interface-id            35    string
+//! ATTRIBUTE    Juniper-Ip-Pool-Name            36    string
+//! ATTRIBUTE    Juniper-Keep-Alive            37    integer
+//! ATTRIBUTE    Juniper-CoS-Traffic-Control-Profile    38    string
+//! ATTRIBUTE    Juniper-CoS-Parameter            39    string
+//! ATTRIBUTE    Juniper-encapsulation-overhead        40    integer
+//! ATTRIBUTE    Juniper-cell-overhead            41    integer
+//! ATTRIBUTE    Juniper-tx-connect-speed        42    integer
+//! ATTRIBUTE    Juniper-rx-connect-speed        43    integer
+//! ATTRIBUTE    Juniper-Firewall-filter-name        44    string
+//! ATTRIBUTE    Juniper-Policer-Parameter        45    string
+//! ATTRIBUTE    Juniper-Local-Group-Name        46    string
+//! ATTRIBUTE    Juniper-Local-Interface            47    string
+//! ATTRIBUTE    Juniper-Switching-Filter        48    string
+//! ATTRIBUTE    Juniper-VoIP-Vlan            49    string
+//! ATTRIBUTE    Juniper-CWA-Redirect            50    string
 //!
-//! ATTRIBUTE	Juniper-AV-Pair				52	string
+//! ATTRIBUTE    Juniper-AV-Pair                52    string
 //!
-//! ATTRIBUTE	Juniper-DHCPv4-Options			55	octets
-//! ATTRIBUTE	Juniper-DHCPv6-Options			207	octets
-//! ATTRIBUTE	Juniper-DHCPv4-Packet-Header		208	octets
-//! ATTRIBUTE	Juniper-DHCPv6-Packet-Header		209	octets
-//! ATTRIBUTE	Juniper-Acct-Request-Reason		210	uint32
+//! ATTRIBUTE    Juniper-DHCPv4-Options            55    octets
+//! ATTRIBUTE    Juniper-DHCPv6-Options            207    octets
+//! ATTRIBUTE    Juniper-DHCPv4-Packet-Header        208    octets
+//! ATTRIBUTE    Juniper-DHCPv6-Packet-Header        209    octets
+//! ATTRIBUTE    Juniper-Acct-Request-Reason        210    uint32
 //!
 //!
-//! VALUE	Juniper-CTPView-APP-Group	Net_View		1
-//! VALUE	Juniper-CTPView-APP-Group	Net_Admin		2
-//! VALUE	Juniper-CTPView-APP-Group	Global_Admin		3
+//! VALUE    Juniper-CTPView-APP-Group    Net_View        1
+//! VALUE    Juniper-CTPView-APP-Group    Net_Admin        2
+//! VALUE    Juniper-CTPView-APP-Group    Global_Admin        3
 //!
-//! VALUE	Juniper-CTP-Group		Read_Only		1
-//! VALUE	Juniper-CTP-Group		Admin			2
-//! VALUE	Juniper-CTP-Group		Privileged_Admin	3
-//! VALUE	Juniper-CTP-Group		Auditor			4
+//! VALUE    Juniper-CTP-Group        Read_Only        1
+//! VALUE    Juniper-CTP-Group        Admin            2
+//! VALUE    Juniper-CTP-Group        Privileged_Admin    3
+//! VALUE    Juniper-CTP-Group        Auditor            4
 //!
-//! VALUE	Juniper-CTPView-OS-Group	Web_Manager		1
-//! VALUE	Juniper-CTPView-OS-Group	System_Admin		2
-//! VALUE	Juniper-CTPView-OS-Group	Auditor			3
+//! VALUE    Juniper-CTPView-OS-Group    Web_Manager        1
+//! VALUE    Juniper-CTPView-OS-Group    System_Admin        2
+//! VALUE    Juniper-CTPView-OS-Group    Auditor            3
 //!
-//! VALUE	Juniper-Acct-Request-Reason	IPv4-Active		0x0004
-//! VALUE	Juniper-Acct-Request-Reason	IPv6-Active		0x0010
-//! VALUE	Juniper-Acct-Request-Reason	Session-Active		0x0040
+//! VALUE    Juniper-Acct-Request-Reason    IPv4-Active        0x0004
+//! VALUE    Juniper-Acct-Request-Reason    IPv6-Active        0x0010
+//! VALUE    Juniper-Acct-Request-Reason    Session-Active        0x0040
 //!
-//! END-VENDOR	Juniper
+//! END-VENDOR    Juniper
 //! ```
 
-use std::net::{Ipv4Addr, Ipv6Addr};
-
-use std::time::SystemTime;
+use std::net::Ipv4Addr;
 
 use crate::core::avp::{AVPError, AVPType, AVP};
 use crate::core::packet::Packet;
-use crate::core::tag::Tag;
-
-use crate::core::ascend;
-use crate::core::cisco;
 
 pub const JUNIPER_LOCAL_USER_NAME_TYPE: AVPType = 1;
 /// Delete all of `juniper_local_user_name` values from a packet.

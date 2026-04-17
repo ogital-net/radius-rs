@@ -146,19 +146,10 @@
 //! VALUE    NAS-Port-Type            Wireless-802.11        19
 //! ```
 
-use std::net::{Ipv4Addr, Ipv6Addr};
-
-use std::time::SystemTime;
+use std::net::Ipv4Addr;
 
 use crate::core::avp::{AVPError, AVPType, AVP};
 use crate::core::packet::Packet;
-use crate::core::tag::Tag;
-
-use crate::core::ascend;
-use crate::core::cisco;
-use crate::core::juniper;
-use crate::core::microsoft;
-use crate::core::mikrotik;
 
 pub const USER_NAME_TYPE: AVPType = 1;
 /// Delete all of `user_name` values from a packet.

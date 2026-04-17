@@ -25,26 +25,9 @@
 //! VALUE    Tunnel-Type            VLAN            13
 //! ```
 
-use std::net::{Ipv4Addr, Ipv6Addr};
-
-use std::time::SystemTime;
-
-use crate::core::avp::{AVPError, AVPType, AVP};
-use crate::core::packet::Packet;
-use crate::core::tag::Tag;
-
-use crate::core::ascend;
-use crate::core::cisco;
-use crate::core::juniper;
-use crate::core::microsoft;
-use crate::core::mikrotik;
 use crate::core::rfc2865;
 use crate::core::rfc2866;
-use crate::core::rfc2867;
 use crate::core::rfc2868;
-use crate::core::rfc2869;
-use crate::core::rfc3162;
-use crate::core::rfc3576;
 pub const ACCT_TERMINATE_CAUSE_SUPPLICANT_RESTART: rfc2866::AcctTerminateCause = 19;
 pub const ACCT_TERMINATE_CAUSE_REAUTHENTICATION_FAILURE: rfc2866::AcctTerminateCause = 20;
 pub const ACCT_TERMINATE_CAUSE_PORT_REINIT: rfc2866::AcctTerminateCause = 21;

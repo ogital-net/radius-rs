@@ -14,78 +14,42 @@
 //! #
 //! #  Updated attributes are at
 //! #
-//! #	https://github.com/wireless-broadband-alliance/RADIUS-VSA
+//! #    https://github.com/wireless-broadband-alliance/RADIUS-VSA
 //! #
 //! # Version:    $Id$
 //! #
 //!
-//! VENDOR		WISPr				14122
+//! VENDOR        WISPr                14122
 //!
 //! #
 //! #    Standard attribute
 //! #
-//! BEGIN-VENDOR	WISPr
+//! BEGIN-VENDOR    WISPr
 //!
-//! ATTRIBUTE	WISPr-Location-ID			1	string
-//! ATTRIBUTE	WISPr-Location-Name			2	string
-//! ATTRIBUTE	WISPr-Logoff-URL			3	string
-//! ATTRIBUTE	WISPr-Redirection-URL			4	string
-//! ATTRIBUTE	WISPr-Bandwidth-Min-Up			5	integer
-//! ATTRIBUTE	WISPr-Bandwidth-Min-Down		6	integer
-//! ATTRIBUTE	WISPr-Bandwidth-Max-Up			7	integer
-//! ATTRIBUTE	WISPr-Bandwidth-Max-Down		8	integer
-//! ATTRIBUTE	WISPr-Session-Terminate-Time		9	string
-//! ATTRIBUTE	WISPr-Session-Terminate-End-Of-Day	10	string
-//! ATTRIBUTE	WISPr-Billing-Class-Of-Service		11	string
+//! ATTRIBUTE    WISPr-Location-ID            1    string
+//! ATTRIBUTE    WISPr-Location-Name            2    string
+//! ATTRIBUTE    WISPr-Logoff-URL            3    string
+//! ATTRIBUTE    WISPr-Redirection-URL            4    string
+//! ATTRIBUTE    WISPr-Bandwidth-Min-Up            5    integer
+//! ATTRIBUTE    WISPr-Bandwidth-Min-Down        6    integer
+//! ATTRIBUTE    WISPr-Bandwidth-Max-Up            7    integer
+//! ATTRIBUTE    WISPr-Bandwidth-Max-Down        8    integer
+//! ATTRIBUTE    WISPr-Session-Terminate-Time        9    string
+//! ATTRIBUTE    WISPr-Session-Terminate-End-Of-Day    10    string
+//! ATTRIBUTE    WISPr-Billing-Class-Of-Service        11    string
 //!
-//! ATTRIBUTE	WBA-Offered-Service			12	string
-//! ATTRIBUTE	WBA-Financial-Clearing-Provider		13	string
-//! ATTRIBUTE	WBA-Data-Clearing-Provider		14	string
-//! ATTRIBUTE	WBA-Linear-Volume-Rate			15	octets
-//! ATTRIBUTE	WBA-Identity-Provider			16	string
-//! ATTRIBUTE	WBA-Custom-SLA			17	string
+//! ATTRIBUTE    WBA-Offered-Service            12    string
+//! ATTRIBUTE    WBA-Financial-Clearing-Provider        13    string
+//! ATTRIBUTE    WBA-Data-Clearing-Provider        14    string
+//! ATTRIBUTE    WBA-Linear-Volume-Rate            15    octets
+//! ATTRIBUTE    WBA-Identity-Provider            16    string
+//! ATTRIBUTE    WBA-Custom-SLA            17    string
 //!
-//! END-VENDOR	WISPr
+//! END-VENDOR    WISPr
 //! ```
-
-use std::net::{Ipv4Addr, Ipv6Addr};
-
-use std::time::SystemTime;
 
 use crate::core::avp::{AVPError, AVPType, AVP};
 use crate::core::packet::Packet;
-use crate::core::tag::Tag;
-
-use crate::core::ascend;
-use crate::core::cisco;
-use crate::core::juniper;
-use crate::core::microsoft;
-use crate::core::mikrotik;
-use crate::core::rfc2865;
-use crate::core::rfc2866;
-use crate::core::rfc2867;
-use crate::core::rfc2868;
-use crate::core::rfc2869;
-use crate::core::rfc3162;
-use crate::core::rfc3576;
-use crate::core::rfc3580;
-use crate::core::rfc4072;
-use crate::core::rfc4372;
-use crate::core::rfc4603;
-use crate::core::rfc4675;
-use crate::core::rfc4818;
-use crate::core::rfc4849;
-use crate::core::rfc5090;
-use crate::core::rfc5176;
-use crate::core::rfc5607;
-use crate::core::rfc5904;
-use crate::core::rfc6519;
-use crate::core::rfc6572;
-use crate::core::rfc6677;
-use crate::core::rfc6911;
-use crate::core::rfc7055;
-use crate::core::rfc7155;
-use crate::core::ruckus;
 
 pub const WIS_PR_LOCATION_ID_TYPE: AVPType = 1;
 /// Delete all of `wis_pr_location_id` values from a packet.
