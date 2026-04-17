@@ -2,7 +2,6 @@ use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use async_trait::async_trait;
 use tokio::net::UdpSocket;
 use tokio::time::sleep;
 
@@ -13,7 +12,6 @@ use radius::server::{RequestHandler, SecretProvider, SecretProviderError};
 
 struct MyRequestHandler {}
 
-#[async_trait]
 impl RequestHandler<(), io::Error> for MyRequestHandler {
     async fn handle_radius_request(
         &self,
@@ -42,7 +40,6 @@ impl RequestHandler<(), io::Error> for MyRequestHandler {
 
 struct LongTimeTakingHandler {}
 
-#[async_trait]
 impl RequestHandler<(), io::Error> for LongTimeTakingHandler {
     async fn handle_radius_request(
         &self,

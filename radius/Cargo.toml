@@ -3,7 +3,7 @@ name = "radius"
 version = "0.4.0"
 authors = ["moznion <moznion@gmail.com>"]
 edition = "2021"
-rust-version = "1.64"
+rust-version = "1.75"
 description = "An async/await native implementation of the RADIUS server and client for Rust."
 license = "MIT"
 readme = "../README.md"
@@ -21,7 +21,6 @@ num_enum = "0.7.2"
 thiserror = "1.0"
 log = "0.4.20"
 tokio = { version = "1.52.1", features = ["net", "time", "macros", "rt"] }
-async-trait = "0.1.77"
 
 [features]
 default = ["md5"]

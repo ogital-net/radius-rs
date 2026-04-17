@@ -1,6 +1,5 @@
 //! RADIUS server implementation.
 
-use async_trait::async_trait;
 use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::future::Future;
@@ -231,7 +230,6 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
 }
 
 /// RequestHandler is a handler for the received RADIUS request.
-#[async_trait]
 pub trait RequestHandler<T, E>: 'static + Sync + Send {
     /// This method has to implement the core feature of the server application what you need.
     ///
@@ -240,7 +238,11 @@ pub trait RequestHandler<T, E>: 'static + Sync + Send {
     /// * conn - This connection is associated with the remote requester. In the most situations,
     ///          you have to send a response through this connection object.
     /// * request - This is a request object that comes from the remote requester.
-    async fn handle_radius_request(&self, conn: &UdpSocket, request: &Request) -> Result<T, E>;
+    fn handle_radius_request(
+        &self,
+        conn: &UdpSocket,
+        request: &Request,
+    ) -> impl std::future::Future<Output = Result<T, E>> + Send;
 }
 
 #[derive(Error, Debug)]

@@ -4,7 +4,6 @@ extern crate log;
 use std::net::SocketAddr;
 use std::{io, process};
 
-use async_trait::async_trait;
 use tokio::net::UdpSocket;
 use tokio::signal;
 
@@ -40,7 +39,6 @@ async fn main() {
 
 struct MyRequestHandler {}
 
-#[async_trait]
 impl RequestHandler<(), io::Error> for MyRequestHandler {
     async fn handle_radius_request(
         &self,
