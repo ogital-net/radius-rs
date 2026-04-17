@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex};
 
 use thiserror::Error;
 use tokio::net::UdpSocket;
@@ -28,7 +28,11 @@ pub struct Server<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> {
     conn_arc: Arc<UdpSocket>,
     request_handler_arc: Arc<T>,
     secret_provider_arc: Arc<U>,
-    undergoing_requests_lock_arc: Arc<RwLock<HashSet<RequestKey>>>,
+    /// Tracks in-flight requests by `(remote_addr, identifier)` to deduplicate retransmissions.
+    /// RADIUS clients retransmit unanswered packets with the same identifier, so we check-and-insert
+    /// atomically on arrival and remove after the handler completes. A `Mutex` (not `RwLock`) is
+    /// correct here because the check-and-insert must be a single atomic write operation.
+    undergoing_requests_lock_arc: Arc<Mutex<HashSet<RequestKey>>>,
     _phantom_return_type: PhantomData<X>,
     _phantom_error_type: PhantomData<E>,
 }
@@ -63,12 +67,11 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
         request_handler: T,
         secret_provider: U,
     ) -> Result<Self, io::Error> {
-        let undergoing_requests_lock_arc = Arc::new(RwLock::new(HashSet::new()));
+        let undergoing_requests_lock_arc = Arc::new(Mutex::new(HashSet::new()));
         let request_handler_arc = Arc::new(request_handler);
         let secret_provider_arc = Arc::new(secret_provider);
 
-        let address = format!("{host}:{port}");
-        let conn = UdpSocket::bind(address).await?;
+        let conn = UdpSocket::bind((host, port)).await?;
         let conn_arc = Arc::new(conn);
 
         Ok(Server {
@@ -168,7 +171,7 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
         request_data: &[u8],
         local_addr: SocketAddr,
         remote_addr: SocketAddr,
-        undergoing_requests_lock: Arc<RwLock<HashSet<RequestKey>>>,
+        undergoing_requests_lock: Arc<Mutex<HashSet<RequestKey>>>,
         request_handler: Arc<T>,
         secret_provider: Arc<U>,
         skip_authenticity_validation: bool,
@@ -207,7 +210,7 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
         let key_for_remove = key;
 
         {
-            let mut undergoing_requests = undergoing_requests_lock.write().unwrap();
+            let mut undergoing_requests = undergoing_requests_lock.lock().unwrap();
             if undergoing_requests.contains(&key) {
                 return;
             }
@@ -227,7 +230,7 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
             }
         }
 
-        let mut undergoing_requests = undergoing_requests_lock.write().unwrap();
+        let mut undergoing_requests = undergoing_requests_lock.lock().unwrap();
         undergoing_requests.remove(&key_for_remove);
     }
 }

@@ -365,7 +365,7 @@ mod tests {
     use crate::core::packet::{
         Packet, PacketError, MAX_PACKET_LENGTH, RADIUS_PACKET_HEADER_LENGTH,
     };
-    use crate::core::rfc2865;
+    use crate::dict::rfc2865;
 
     #[test]
     fn test_for_rfc2865_7_1() -> Result<(), PacketError> {

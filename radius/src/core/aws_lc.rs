@@ -39,5 +39,3 @@ pub fn random_bytes(n: usize) -> Vec<u8> {
     rand_bytes(&mut buf);
     buf
 }
-
-

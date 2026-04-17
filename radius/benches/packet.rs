@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use radius::core::code::Code;
 use radius::core::packet::Packet;
-use radius::core::rfc2865;
+use radius::dict::rfc2865;
 
 // A real Access-Request packet from RFC 2865 §7.1.
 static RFC2865_REQUEST: &[u8] = &[
@@ -36,7 +36,12 @@ fn bench_packet_encode_accounting(c: &mut Criterion) {
 
 fn bench_packet_new(c: &mut Criterion) {
     c.bench_function("Packet::new", |b| {
-        b.iter(|| Packet::new(std::hint::black_box(Code::AccessRequest), std::hint::black_box(SECRET)))
+        b.iter(|| {
+            Packet::new(
+                std::hint::black_box(Code::AccessRequest),
+                std::hint::black_box(SECRET),
+            )
+        })
     });
 }
 

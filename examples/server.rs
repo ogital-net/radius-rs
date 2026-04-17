@@ -9,7 +9,7 @@ use tokio::signal;
 
 use radius::core::code::Code;
 use radius::core::request::Request;
-use radius::core::rfc2865;
+use radius::dict::rfc2865;
 use radius::server::{RequestHandler, SecretProvider, SecretProviderError, Server};
 
 #[tokio::main]

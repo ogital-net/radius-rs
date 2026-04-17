@@ -3,6 +3,7 @@ extern crate log;
 
 pub mod client;
 pub mod core;
+pub mod dict;
 pub mod server;
 
 #[cfg(all(feature = "md5", feature = "openssl"))]

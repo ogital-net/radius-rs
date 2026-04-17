@@ -3,7 +3,7 @@ extern crate log;
 use radius::client::Client;
 use radius::core::code::Code;
 use radius::core::packet::Packet;
-use radius::core::rfc2865;
+use radius::dict::rfc2865;
 use std::net::SocketAddr;
 use tokio::time::Duration;
 

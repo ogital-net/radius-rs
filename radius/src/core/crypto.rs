@@ -57,5 +57,3 @@ pub fn fill_random(buf: &mut [u8]) {
     use rand::RngExt;
     rand::rng().fill(buf);
 }
-
-

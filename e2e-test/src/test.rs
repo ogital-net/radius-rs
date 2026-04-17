@@ -7,7 +7,7 @@ use tokio::time::sleep;
 
 use radius::core::code::Code;
 use radius::core::request::Request;
-use radius::core::rfc2865;
+use radius::dict::rfc2865;
 use radius::server::{RequestHandler, SecretProvider, SecretProviderError};
 
 struct MyRequestHandler {}
@@ -74,7 +74,7 @@ mod tests {
     use radius::client::{Client, ClientError};
     use radius::core::code::Code;
     use radius::core::packet::Packet;
-    use radius::core::rfc2865;
+    use radius::dict::rfc2865;
 
     use crate::test::{LongTimeTakingHandler, MyRequestHandler, MySecretProvider};
     use radius::server::Server;
