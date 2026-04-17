@@ -30,11 +30,15 @@ enum EncryptionType {
 #[derive(Debug)]
 struct RadiusAttribute {
     name: String,
+    /// For standard attributes, the RADIUS AVP type (1–255).
+    /// For VSA sub-attributes, the vendor-type byte.
     typ: u8,
     value_type: RadiusAttributeValueType,
     fixed_octets_length: Option<usize>,
     concat_octets: bool,
     has_tag: bool,
+    /// Set when this attribute is inside a BEGIN-VENDOR / END-VENDOR block.
+    vendor_id: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -193,14 +197,32 @@ fn generate_header(
     let needs_system_time = attrs
         .iter()
         .any(|a| matches!(a.value_type, RadiusAttributeValueType::Date));
-    let has_non_vsa = attrs
+
+    // Standard attributes: not inside a vendor block and not the raw VSA container type.
+    let has_standard_attrs = attrs
         .iter()
-        .any(|a| !matches!(a.value_type, RadiusAttributeValueType::VSA));
-    let needs_avp_error = attrs.iter().any(|a| match &a.value_type {
-        RadiusAttributeValueType::VSA => false,
-        RadiusAttributeValueType::Octets => a.fixed_octets_length.is_some(),
-        _ => true,
+        .any(|a| a.vendor_id.is_none() && !matches!(a.value_type, RadiusAttributeValueType::VSA));
+    // VSA sub-attributes: inside a BEGIN-VENDOR / END-VENDOR block.
+    let has_vsa_attrs = attrs.iter().any(|a| a.vendor_id.is_some());
+
+    let needs_avp_error_standard = attrs.iter().any(|a| {
+        a.vendor_id.is_none()
+            && match &a.value_type {
+                RadiusAttributeValueType::VSA => false,
+                RadiusAttributeValueType::Octets => a.fixed_octets_length.is_some(),
+                _ => true,
+            }
     });
+    let needs_avp_error_vsa = attrs.iter().any(|a| {
+        a.vendor_id.is_some()
+            && match &a.value_type {
+                RadiusAttributeValueType::VSA => false,
+                RadiusAttributeValueType::Octets => a.fixed_octets_length.is_some(),
+                _ => true,
+            }
+    });
+    let needs_avp_error = needs_avp_error_standard || needs_avp_error_vsa;
+
     let needs_tag = attrs
         .iter()
         .any(|a| a.has_tag || matches!(a.value_type, RadiusAttributeValueType::TunnelPassword));
@@ -216,12 +238,20 @@ fn generate_header(
     } else {
         ""
     };
-    let avp_import = match (has_non_vsa, needs_avp_error) {
-        (true, true) => "use crate::core::avp::{AVP, AVPType, AVPError};\n",
-        (true, false) => "use crate::core::avp::{AVP, AVPType};\n",
-        (false, _) => "",
+    // Determine which avp items to import.
+    // AVPType is only needed for standard (non-vendor) attribute constants.
+    let avp_import = match (
+        has_standard_attrs || has_vsa_attrs,
+        has_standard_attrs,
+        needs_avp_error,
+    ) {
+        (false, _, _) => "",
+        (true, true, true) => "use crate::core::avp::{AVP, AVPType, AVPError};\n",
+        (true, true, false) => "use crate::core::avp::{AVP, AVPType};\n",
+        (true, false, true) => "use crate::core::avp::{AVP, AVPError};\n",
+        (true, false, false) => "use crate::core::avp::AVP;\n",
     };
-    let packet_import = if has_non_vsa {
+    let packet_import = if has_standard_attrs || has_vsa_attrs {
         "use crate::core::packet::Packet;\n"
     } else {
         ""
@@ -332,11 +362,143 @@ fn generate_attribute_code(
     value_defined_attributes_set: &HashSet<&String>,
 ) {
     let attr_name = attr.name.clone();
-    let type_identifier = format!("{}_TYPE", attr_name.to_screaming_snake_case());
-    let type_value = attr.typ;
     let method_identifier = attr_name.to_snake_case();
 
-    generate_common_attribute_code(w, &attr_name, &type_identifier, type_value);
+    if let Some(vendor_id) = attr.vendor_id {
+        // VSA sub-attribute: use a VENDOR_TYPE constant (u8) and VSA-aware generators.
+        let type_identifier = format!("{}_VENDOR_TYPE", attr_name.to_screaming_snake_case());
+        generate_common_attribute_code(w, &attr_name, &type_identifier, attr.typ, Some(vendor_id));
+        match attr.value_type {
+            RadiusAttributeValueType::String => {
+                generate_vsa_string_attribute_code(
+                    w,
+                    &method_identifier,
+                    &type_identifier,
+                    vendor_id,
+                );
+            }
+            RadiusAttributeValueType::UserPassword => {
+                generate_vsa_user_password_attribute_code(
+                    w,
+                    &method_identifier,
+                    &type_identifier,
+                    vendor_id,
+                );
+            }
+            RadiusAttributeValueType::TunnelPassword => {
+                // Tagged tunnel-password in VSA context is uncommon; treat as plain octets.
+                generate_vsa_octets_attribute_code(
+                    w,
+                    &method_identifier,
+                    &type_identifier,
+                    vendor_id,
+                );
+            }
+            RadiusAttributeValueType::Octets => {
+                if let Some(fixed_len) = attr.fixed_octets_length {
+                    generate_vsa_fixed_length_octets_attribute_code(
+                        w,
+                        &method_identifier,
+                        &type_identifier,
+                        vendor_id,
+                        fixed_len,
+                    );
+                } else {
+                    generate_vsa_octets_attribute_code(
+                        w,
+                        &method_identifier,
+                        &type_identifier,
+                        vendor_id,
+                    );
+                }
+            }
+            RadiusAttributeValueType::IpAddr => {
+                generate_vsa_ipaddr_attribute_code(
+                    w,
+                    &method_identifier,
+                    &type_identifier,
+                    vendor_id,
+                );
+            }
+            RadiusAttributeValueType::Ipv4Prefix => {
+                generate_vsa_ipv4_prefix_attribute_code(
+                    w,
+                    &method_identifier,
+                    &type_identifier,
+                    vendor_id,
+                );
+            }
+            RadiusAttributeValueType::Ipv6Addr => {
+                generate_vsa_ipv6addr_attribute_code(
+                    w,
+                    &method_identifier,
+                    &type_identifier,
+                    vendor_id,
+                );
+            }
+            RadiusAttributeValueType::Ipv6Prefix => {
+                generate_vsa_ipv6_prefix_attribute_code(
+                    w,
+                    &method_identifier,
+                    &type_identifier,
+                    vendor_id,
+                );
+            }
+            RadiusAttributeValueType::IfId => {
+                generate_vsa_fixed_length_octets_attribute_code(
+                    w,
+                    &method_identifier,
+                    &type_identifier,
+                    vendor_id,
+                    8,
+                );
+            }
+            RadiusAttributeValueType::Date => {
+                generate_vsa_date_attribute_code(
+                    w,
+                    &method_identifier,
+                    &type_identifier,
+                    vendor_id,
+                );
+            }
+            RadiusAttributeValueType::Integer => {
+                if value_defined_attributes_set.contains(&attr_name) {
+                    generate_vsa_value_defined_integer_attribute_code(
+                        w,
+                        &method_identifier,
+                        &type_identifier,
+                        vendor_id,
+                        &attr_name.to_pascal_case(),
+                    );
+                } else {
+                    generate_vsa_integer_attribute_code(
+                        w,
+                        &method_identifier,
+                        &type_identifier,
+                        vendor_id,
+                    );
+                }
+            }
+            RadiusAttributeValueType::Short => {
+                generate_vsa_short_attribute_code(
+                    w,
+                    &method_identifier,
+                    &type_identifier,
+                    vendor_id,
+                );
+            }
+            RadiusAttributeValueType::VSA => {
+                // A vendor sub-attribute of type VSA is unusual; skip.
+            }
+        }
+        return;
+    }
+
+    // Standard (non-vendor) attribute path — unchanged from before.
+    let type_identifier = format!("{}_TYPE", attr_name.to_screaming_snake_case());
+    let type_value = attr.typ;
+
+    generate_common_attribute_code(w, &attr_name, &type_identifier, type_value, None);
     match attr.value_type {
         RadiusAttributeValueType::String => {
             if attr.has_tag {
@@ -461,19 +623,30 @@ fn generate_common_attribute_code(
     attr_name: &str,
     type_identifier: &str,
     type_value: u8,
+    vendor_id: Option<u32>,
 ) {
-    let code = format!(
-        "
+    let method_identifier = attr_name.to_snake_case();
+    let code = if let Some(vid) = vendor_id {
+        format!(
+            "
+pub const {type_identifier}: u8 = {type_value};
+/// Delete all of `{method_identifier}` values from a packet.
+pub fn delete_{method_identifier}(packet: &mut Packet) {{
+    packet.delete_vsa({vid}_u32, {type_identifier});
+}}
+",
+        )
+    } else {
+        format!(
+            "
 pub const {type_identifier}: AVPType = {type_value};
 /// Delete all of `{method_identifier}` values from a packet.
 pub fn delete_{method_identifier}(packet: &mut Packet) {{
     packet.delete({type_identifier});
 }}
 ",
-        method_identifier = attr_name.to_snake_case(),
-        type_identifier = type_identifier,
-        type_value = type_value,
-    );
+        )
+    };
     w.write_all(code.as_bytes()).unwrap();
 }
 
@@ -1149,7 +1322,535 @@ pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<u16>, AVPEr
 }
 
 fn generate_vsa_attribute_code() {
-    // NOP
+    // NOP — the RFC 2865 type-26 "Vendor-Specific" container attribute has no generated methods.
+}
+
+// ── VSA sub-attribute generators ─────────────────────────────────────────────
+// These emit add/lookup/lookup_all functions that encode/decode using
+// AVP::from_vsa / Packet::lookup_vsa / Packet::lookup_all_vsa.
+
+fn generate_vsa_string_attribute_code(
+    w: &mut BufWriter<File>,
+    method_identifier: &str,
+    type_identifier: &str,
+    vendor_id: u32,
+) {
+    let code = format!(
+        "/// Add `{method_identifier}` string value to a packet.
+pub fn add_{method_identifier}(packet: &mut Packet, value: &str) {{
+    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, value.as_bytes()));
+}}
+/// Lookup a `{method_identifier}` string value from a packet.
+///
+/// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<String, AVPError>> {{
+    packet
+        .lookup_vsa({vendor_id}_u32, {type_identifier})
+        .map(|payload| AVP::from_bytes(0, &payload).encode_string())
+}}
+/// Lookup all of the `{method_identifier}` string values from a packet.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<String>, AVPError> {{
+    let mut vec = Vec::new();
+    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
+        vec.push(AVP::from_bytes(0, &payload).encode_string()?);
+    }}
+    Ok(vec)
+}}
+",
+    );
+    w.write_all(code.as_bytes()).unwrap();
+}
+
+fn generate_vsa_user_password_attribute_code(
+    w: &mut BufWriter<File>,
+    method_identifier: &str,
+    type_identifier: &str,
+    vendor_id: u32,
+) {
+    let code = format!(
+        "/// Add `{method_identifier}` user-password value to a packet.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if encoding the user-password value fails.
+pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), AVPError> {{
+    let encoded = AVP::from_user_password(0, value, packet.get_secret(), packet.get_authenticator())?;
+    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &encoded.encode_bytes()));
+    Ok(())
+}}
+/// Lookup a `{method_identifier}` user-password value from a packet.
+///
+/// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVPError>> {{
+    packet
+        .lookup_vsa({vendor_id}_u32, {type_identifier})
+        .map(|payload| {{
+            AVP::from_bytes(0, &payload)
+                .encode_user_password(packet.get_secret(), packet.get_authenticator())
+        }})
+}}
+/// Lookup all of the `{method_identifier}` user-password values from a packet.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Vec<u8>>, AVPError> {{
+    let mut vec = Vec::new();
+    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
+        vec.push(
+            AVP::from_bytes(0, &payload)
+                .encode_user_password(packet.get_secret(), packet.get_authenticator())?,
+        );
+    }}
+    Ok(vec)
+}}
+",
+    );
+    w.write_all(code.as_bytes()).unwrap();
+}
+
+fn generate_vsa_octets_attribute_code(
+    w: &mut BufWriter<File>,
+    method_identifier: &str,
+    type_identifier: &str,
+    vendor_id: u32,
+) {
+    let code = format!(
+        "/// Add `{method_identifier}` octets value to a packet.
+pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) {{
+    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, value));
+}}
+/// Lookup a `{method_identifier}` octets value from a packet.
+///
+/// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
+#[must_use]
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Vec<u8>> {{
+    packet
+        .lookup_vsa({vendor_id}_u32, {type_identifier})
+        .map(|b| b.to_vec())
+}}
+/// Lookup all of the `{method_identifier}` octets values from a packet.
+#[must_use]
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Vec<Vec<u8>> {{
+    packet
+        .lookup_all_vsa({vendor_id}_u32, {type_identifier})
+        .into_iter()
+        .map(|b| b.to_vec())
+        .collect()
+}}
+",
+    );
+    w.write_all(code.as_bytes()).unwrap();
+}
+
+fn generate_vsa_fixed_length_octets_attribute_code(
+    w: &mut BufWriter<File>,
+    method_identifier: &str,
+    type_identifier: &str,
+    vendor_id: u32,
+    fixed_octets_length: usize,
+) {
+    let code = format!(
+        "/// Add `{method_identifier}` fixed-length octets value to a packet.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if `value` is not exactly `{fixed_octets_length}` bytes.
+pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), AVPError> {{
+    if value.len() != {fixed_octets_length} {{
+        return Err(AVPError::InvalidAttributeLengthError(\"{fixed_octets_length} bytes\".to_owned(), value.len()));
+    }}
+    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, value));
+    Ok(())
+}}
+/// Lookup a `{method_identifier}` fixed-length octets value from a packet.
+///
+/// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
+#[must_use]
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Vec<u8>> {{
+    packet
+        .lookup_vsa({vendor_id}_u32, {type_identifier})
+        .map(|b| b.to_vec())
+}}
+/// Lookup all of the `{method_identifier}` fixed-length octets values from a packet.
+#[must_use]
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Vec<Vec<u8>> {{
+    packet
+        .lookup_all_vsa({vendor_id}_u32, {type_identifier})
+        .into_iter()
+        .map(|b| b.to_vec())
+        .collect()
+}}
+",
+    );
+    w.write_all(code.as_bytes()).unwrap();
+}
+
+fn generate_vsa_ipaddr_attribute_code(
+    w: &mut BufWriter<File>,
+    method_identifier: &str,
+    type_identifier: &str,
+    vendor_id: u32,
+) {
+    let code = format!(
+        "/// Add `{method_identifier}` ipaddr value to a packet.
+pub fn add_{method_identifier}(packet: &mut Packet, value: &Ipv4Addr) {{
+    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &value.octets()));
+}}
+/// Lookup a `{method_identifier}` ipaddr value from a packet.
+///
+/// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Ipv4Addr, AVPError>> {{
+    packet
+        .lookup_vsa({vendor_id}_u32, {type_identifier})
+        .map(|payload| AVP::from_bytes(0, &payload).encode_ipv4())
+}}
+/// Lookup all of the `{method_identifier}` ipaddr values from a packet.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Ipv4Addr>, AVPError> {{
+    let mut vec = Vec::new();
+    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
+        vec.push(AVP::from_bytes(0, &payload).encode_ipv4()?);
+    }}
+    Ok(vec)
+}}
+",
+    );
+    w.write_all(code.as_bytes()).unwrap();
+}
+
+fn generate_vsa_ipv4_prefix_attribute_code(
+    w: &mut BufWriter<File>,
+    method_identifier: &str,
+    type_identifier: &str,
+    vendor_id: u32,
+) {
+    let code = format!(
+        "/// Add `{method_identifier}` ipv4 prefix value to a packet.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if `value` is not exactly 4 bytes.
+pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), AVPError> {{
+    let avp = AVP::from_ipv4_prefix(0, value)?;
+    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &avp.encode_bytes()));
+    Ok(())
+}}
+/// Lookup a `{method_identifier}` ipv4 prefix value from a packet.
+///
+/// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVPError>> {{
+    packet
+        .lookup_vsa({vendor_id}_u32, {type_identifier})
+        .map(|payload| AVP::from_bytes(0, &payload).encode_ipv4_prefix())
+}}
+/// Lookup all of the `{method_identifier}` ipv4 prefix values from a packet.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Vec<u8>>, AVPError> {{
+    let mut vec = Vec::new();
+    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
+        vec.push(AVP::from_bytes(0, &payload).encode_ipv4_prefix()?);
+    }}
+    Ok(vec)
+}}
+",
+    );
+    w.write_all(code.as_bytes()).unwrap();
+}
+
+fn generate_vsa_ipv6addr_attribute_code(
+    w: &mut BufWriter<File>,
+    method_identifier: &str,
+    type_identifier: &str,
+    vendor_id: u32,
+) {
+    let code = format!(
+        "/// Add `{method_identifier}` ipv6addr value to a packet.
+pub fn add_{method_identifier}(packet: &mut Packet, value: &Ipv6Addr) {{
+    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &value.octets()));
+}}
+/// Lookup a `{method_identifier}` ipv6addr value from a packet.
+///
+/// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Ipv6Addr, AVPError>> {{
+    packet
+        .lookup_vsa({vendor_id}_u32, {type_identifier})
+        .map(|payload| AVP::from_bytes(0, &payload).encode_ipv6())
+}}
+/// Lookup all of the `{method_identifier}` ipv6addr values from a packet.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Ipv6Addr>, AVPError> {{
+    let mut vec = Vec::new();
+    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
+        vec.push(AVP::from_bytes(0, &payload).encode_ipv6()?);
+    }}
+    Ok(vec)
+}}
+",
+    );
+    w.write_all(code.as_bytes()).unwrap();
+}
+
+fn generate_vsa_ipv6_prefix_attribute_code(
+    w: &mut BufWriter<File>,
+    method_identifier: &str,
+    type_identifier: &str,
+    vendor_id: u32,
+) {
+    let code = format!(
+        "/// Add `{method_identifier}` ipv6 prefix value to a packet.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if `value` exceeds 16 bytes.
+pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), AVPError> {{
+    let avp = AVP::from_ipv6_prefix(0, value)?;
+    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &avp.encode_bytes()));
+    Ok(())
+}}
+/// Lookup a `{method_identifier}` ipv6 prefix value from a packet.
+///
+/// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVPError>> {{
+    packet
+        .lookup_vsa({vendor_id}_u32, {type_identifier})
+        .map(|payload| AVP::from_bytes(0, &payload).encode_ipv6_prefix())
+}}
+/// Lookup all of the `{method_identifier}` ipv6 prefix values from a packet.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Vec<u8>>, AVPError> {{
+    let mut vec = Vec::new();
+    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
+        vec.push(AVP::from_bytes(0, &payload).encode_ipv6_prefix()?);
+    }}
+    Ok(vec)
+}}
+",
+    );
+    w.write_all(code.as_bytes()).unwrap();
+}
+
+fn generate_vsa_date_attribute_code(
+    w: &mut BufWriter<File>,
+    method_identifier: &str,
+    type_identifier: &str,
+    vendor_id: u32,
+) {
+    let code = format!(
+        "/// Add `{method_identifier}` date value to a packet.
+pub fn add_{method_identifier}(packet: &mut Packet, value: &SystemTime) {{
+    let avp = AVP::from_date(0, value);
+    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &avp.encode_bytes()));
+}}
+/// Lookup a `{method_identifier}` date value from a packet.
+///
+/// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<SystemTime, AVPError>> {{
+    packet
+        .lookup_vsa({vendor_id}_u32, {type_identifier})
+        .map(|payload| AVP::from_bytes(0, &payload).encode_date())
+}}
+/// Lookup all of the `{method_identifier}` date values from a packet.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<SystemTime>, AVPError> {{
+    let mut vec = Vec::new();
+    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
+        vec.push(AVP::from_bytes(0, &payload).encode_date()?);
+    }}
+    Ok(vec)
+}}
+",
+    );
+    w.write_all(code.as_bytes()).unwrap();
+}
+
+fn generate_vsa_integer_attribute_code(
+    w: &mut BufWriter<File>,
+    method_identifier: &str,
+    type_identifier: &str,
+    vendor_id: u32,
+) {
+    let code = format!(
+        "/// Add `{method_identifier}` integer value to a packet.
+pub fn add_{method_identifier}(packet: &mut Packet, value: u32) {{
+    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &u32::to_be_bytes(value)));
+}}
+/// Lookup a `{method_identifier}` integer value from a packet.
+///
+/// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<u32, AVPError>> {{
+    packet
+        .lookup_vsa({vendor_id}_u32, {type_identifier})
+        .map(|payload| AVP::from_bytes(0, &payload).encode_u32())
+}}
+/// Lookup all of the `{method_identifier}` integer values from a packet.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<u32>, AVPError> {{
+    let mut vec = Vec::new();
+    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
+        vec.push(AVP::from_bytes(0, &payload).encode_u32()?);
+    }}
+    Ok(vec)
+}}
+",
+    );
+    w.write_all(code.as_bytes()).unwrap();
+}
+
+fn generate_vsa_value_defined_integer_attribute_code(
+    w: &mut BufWriter<File>,
+    method_identifier: &str,
+    type_identifier: &str,
+    vendor_id: u32,
+    value_type: &str,
+) {
+    let code = format!(
+        "/// Add `{method_identifier}` integer value to a packet.
+#[allow(clippy::unnecessary_cast)]
+pub fn add_{method_identifier}(packet: &mut Packet, value: {value_type}) {{
+    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &u32::to_be_bytes(value as u32)));
+}}
+/// Lookup a `{method_identifier}` integer value from a packet.
+///
+/// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<{value_type}, AVPError>> {{
+    packet
+        .lookup_vsa({vendor_id}_u32, {type_identifier})
+        .map(|payload| AVP::from_bytes(0, &payload).encode_u32().map(|v| v as {value_type}))
+}}
+/// Lookup all of the `{method_identifier}` integer values from a packet.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<{value_type}>, AVPError> {{
+    let mut vec = Vec::new();
+    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
+        vec.push(AVP::from_bytes(0, &payload).encode_u32()? as {value_type});
+    }}
+    Ok(vec)
+}}
+",
+    );
+    w.write_all(code.as_bytes()).unwrap();
+}
+
+fn generate_vsa_short_attribute_code(
+    w: &mut BufWriter<File>,
+    method_identifier: &str,
+    type_identifier: &str,
+    vendor_id: u32,
+) {
+    let code = format!(
+        "/// Add `{method_identifier}` short integer value to a packet.
+pub fn add_{method_identifier}(packet: &mut Packet, value: u16) {{
+    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &u16::to_be_bytes(value)));
+}}
+/// Lookup a `{method_identifier}` short integer value from a packet.
+///
+/// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<u16, AVPError>> {{
+    packet
+        .lookup_vsa({vendor_id}_u32, {type_identifier})
+        .map(|payload| AVP::from_bytes(0, &payload).encode_u16())
+}}
+/// Lookup all of the `{method_identifier}` short integer values from a packet.
+///
+/// # Errors
+///
+/// Returns an `AVPError` if decoding fails.
+#[must_use]
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<u16>, AVPError> {{
+    let mut vec = Vec::new();
+    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
+        vec.push(AVP::from_bytes(0, &payload).encode_u16()?);
+    }}
+    Ok(vec)
+}}
+",
+    );
+    w.write_all(code.as_bytes()).unwrap();
 }
 
 type DictParsed = (Vec<RadiusAttribute>, BTreeMap<String, Vec<RadiusValue>>);
@@ -1163,8 +1864,13 @@ fn parse_dict_file(
     let fixed_length_octets_re = Regex::new(r"^octets\[(\d+)]$").unwrap();
 
     let mut radius_attributes: Vec<RadiusAttribute> = Vec::new();
-    let mut seen_attribute_types: HashSet<u8> = HashSet::new();
+    // Key is (vendor_id, attr_type) to allow same type numbers across different vendors.
+    let mut seen_attribute_types: HashSet<(Option<u32>, u8)> = HashSet::new();
     let mut radius_attribute_to_values: BTreeMap<String, Vec<RadiusValue>> = BTreeMap::new();
+
+    // Vendor tracking: name → numeric id, and the currently-active vendor block.
+    let mut vendor_id_map: HashMap<String, u32> = HashMap::new();
+    let mut current_vendor_id: Option<u32> = None;
 
     let lines = read_lines(dict_file_path).unwrap();
     for line_result in lines {
@@ -1181,8 +1887,29 @@ fn parse_dict_file(
         }
 
         let kind = items[0];
+
+        // Handle vendor control lines before the generic length check.
         match kind {
-            VENDOR_KIND | BEGIN_VENDOR_KIND | END_VENDOR_KIND => continue,
+            VENDOR_KIND => {
+                // VENDOR  vendor-name  number  [format=t,l]
+                if items.len() >= 3 {
+                    if let Ok(vid) = items[2].parse::<u32>() {
+                        vendor_id_map.insert(items[1].to_string(), vid);
+                    }
+                }
+                continue;
+            }
+            BEGIN_VENDOR_KIND => {
+                // BEGIN-VENDOR  vendor-name
+                if items.len() >= 2 {
+                    current_vendor_id = vendor_id_map.get(items[1]).copied();
+                }
+                continue;
+            }
+            END_VENDOR_KIND => {
+                current_vendor_id = None;
+                continue;
+            }
             _ => {}
         }
 
@@ -1240,8 +1967,8 @@ fn parse_dict_file(
                     Ok(t) => t,
                     Err(_) => continue, // skip sub-attributes with dotted type IDs (e.g. "153.2")
                 };
-                if !seen_attribute_types.insert(parsed_typ) {
-                    continue; // skip duplicate attribute type numbers
+                if !seen_attribute_types.insert((current_vendor_id, parsed_typ)) {
+                    continue; // skip duplicate attribute type numbers within the same scope
                 }
 
                 radius_attributes.push(RadiusAttribute {
@@ -1251,6 +1978,7 @@ fn parse_dict_file(
                     fixed_octets_length,
                     concat_octets,
                     has_tag,
+                    vendor_id: current_vendor_id,
                 });
             }
             VALUE_KIND => {

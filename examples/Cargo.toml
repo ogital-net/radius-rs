@@ -26,3 +26,7 @@ path = "server.rs"
 name = "client"
 path = "client.rs"
 
+[[example]]
+name = "cisco_vsa"
+path = "cisco_vsa.rs"
+

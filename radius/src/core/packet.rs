@@ -5,7 +5,7 @@ use bytes::Bytes;
 use thiserror::Error;
 
 use crate::core::attributes::Attributes;
-use crate::core::avp::{AVPType, AVP};
+use crate::core::avp::{AVPType, AVP, VENDOR_SPECIFIC_TYPE};
 use crate::core::code::Code;
 use crate::core::crypto;
 
@@ -342,6 +342,32 @@ impl Packet {
     pub fn lookup_all(&self, typ: AVPType) -> Vec<&AVP> {
         self.attributes.lookup_all(typ)
     }
+
+    /// Returns the value bytes of the first Vendor-Specific AVP (type 26) matching
+    /// `(vendor_id, vendor_type)`. Returns `None` if no match is found.
+    #[must_use]
+    pub fn lookup_vsa(&self, vendor_id: u32, vendor_type: u8) -> Option<bytes::Bytes> {
+        self.attributes
+            .lookup_all(VENDOR_SPECIFIC_TYPE)
+            .into_iter()
+            .find_map(|avp| avp.decode_vsa(vendor_id, vendor_type))
+    }
+
+    /// Returns the value bytes of all Vendor-Specific AVPs (type 26) matching
+    /// `(vendor_id, vendor_type)`.
+    #[must_use]
+    pub fn lookup_all_vsa(&self, vendor_id: u32, vendor_type: u8) -> Vec<bytes::Bytes> {
+        self.attributes
+            .lookup_all(VENDOR_SPECIFIC_TYPE)
+            .into_iter()
+            .filter_map(|avp| avp.decode_vsa(vendor_id, vendor_type))
+            .collect()
+    }
+
+    /// Delete all Vendor-Specific AVPs (type 26) matching `(vendor_id, vendor_type)`.
+    pub fn delete_vsa(&mut self, vendor_id: u32, vendor_type: u8) {
+        self.attributes.del_vsa(vendor_id, vendor_type);
+    }
 }
 
 impl Debug for Packet {
@@ -373,6 +399,7 @@ mod tests {
     use crate::core::packet::{
         Packet, PacketError, MAX_PACKET_LENGTH, RADIUS_PACKET_HEADER_LENGTH,
     };
+    use crate::dict::cisco;
     use crate::dict::rfc2865;
 
     #[test]
@@ -720,5 +747,175 @@ mod tests {
     ),
 }"#;
         assert_eq!(debug_output, expected);
+    }
+
+    // ── VSA primitive tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_avp_from_vsa_decode_vsa_roundtrip() {
+        let payload = b"shell:priv-lvl=15";
+        let avp = AVP::from_vsa(9, 1, payload);
+        assert_eq!(avp.typ, 26); // VENDOR_SPECIFIC_TYPE
+        let decoded = avp.decode_vsa(9, 1).unwrap();
+        assert_eq!(decoded.as_ref(), payload);
+    }
+
+    #[test]
+    fn test_avp_decode_vsa_wrong_vendor_id() {
+        let avp = AVP::from_vsa(9, 1, b"value");
+        assert!(avp.decode_vsa(11, 1).is_none());
+    }
+
+    #[test]
+    fn test_avp_decode_vsa_wrong_vendor_type() {
+        let avp = AVP::from_vsa(9, 1, b"value");
+        assert!(avp.decode_vsa(9, 2).is_none());
+    }
+
+    #[test]
+    fn test_avp_decode_vsa_non_vsa_type() {
+        // An AVP whose typ is not 26 should never match decode_vsa.
+        let avp = AVP {
+            typ: 1,
+            value: bytes::Bytes::from_static(b"\x00\x00\x00\x09\x01\x07value"),
+        };
+        assert!(avp.decode_vsa(9, 1).is_none());
+    }
+
+    #[test]
+    fn test_packet_lookup_vsa_and_lookup_all_vsa() {
+        let mut packet = Packet::new(Code::AccessRequest, b"secret");
+        packet.add(AVP::from_vsa(9, 1, b"shell:priv-lvl=15"));
+        packet.add(AVP::from_vsa(9, 1, b"audit:event=login"));
+        packet.add(AVP::from_vsa(9, 2, b"GigabitEthernet0/0"));
+
+        // lookup_vsa returns the first match.
+        let first = packet.lookup_vsa(9, 1).unwrap();
+        assert_eq!(first.as_ref(), b"shell:priv-lvl=15");
+
+        // lookup_vsa returns None for an absent vendor_type.
+        assert!(packet.lookup_vsa(9, 99).is_none());
+
+        // lookup_all_vsa returns every match.
+        let all = packet.lookup_all_vsa(9, 1);
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].as_ref(), b"shell:priv-lvl=15");
+        assert_eq!(all[1].as_ref(), b"audit:event=login");
+
+        // Different vendor_type is returned independently.
+        let nas_port = packet.lookup_all_vsa(9, 2);
+        assert_eq!(nas_port.len(), 1);
+        assert_eq!(nas_port[0].as_ref(), b"GigabitEthernet0/0");
+    }
+
+    #[test]
+    fn test_packet_delete_vsa() {
+        let mut packet = Packet::new(Code::AccessRequest, b"secret");
+        packet.add(AVP::from_vsa(9, 1, b"shell:priv-lvl=15"));
+        packet.add(AVP::from_vsa(9, 1, b"audit:event=login"));
+        packet.add(AVP::from_vsa(9, 2, b"GigabitEthernet0/0"));
+
+        packet.delete_vsa(9, 1);
+        assert!(packet.lookup_vsa(9, 1).is_none());
+        assert_eq!(packet.lookup_all_vsa(9, 1).len(), 0);
+
+        // A different vendor_type must not have been removed.
+        assert!(packet.lookup_vsa(9, 2).is_some());
+    }
+
+    #[test]
+    fn test_packet_delete_vsa_different_vendor_id_is_preserved() {
+        let mut packet = Packet::new(Code::AccessRequest, b"secret");
+        packet.add(AVP::from_vsa(9, 1, b"cisco-value"));
+        packet.add(AVP::from_vsa(311, 1, b"microsoft-value")); // vendor 311 = Microsoft
+
+        packet.delete_vsa(9, 1);
+        assert!(packet.lookup_vsa(9, 1).is_none());
+        // Microsoft VSA with the same sub-type must be untouched.
+        assert!(packet.lookup_vsa(311, 1).is_some());
+    }
+
+    // ── Cisco dict helper tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_cisco_av_pair_string_roundtrip() {
+        let mut packet = Packet::new(Code::AccessRequest, b"secret");
+        cisco::add_cisco_av_pair(&mut packet, "shell:priv-lvl=15");
+        let val = cisco::lookup_cisco_av_pair(&packet).unwrap().unwrap();
+        assert_eq!(val, "shell:priv-lvl=15");
+    }
+
+    #[test]
+    fn test_cisco_av_pair_lookup_all() {
+        let mut packet = Packet::new(Code::AccessRequest, b"secret");
+        cisco::add_cisco_av_pair(&mut packet, "shell:priv-lvl=15");
+        cisco::add_cisco_av_pair(&mut packet, "audit:event=login");
+        let all = cisco::lookup_all_cisco_av_pair(&packet).unwrap();
+        assert_eq!(all, vec!["shell:priv-lvl=15", "audit:event=login"]);
+    }
+
+    #[test]
+    fn test_cisco_av_pair_delete() {
+        let mut packet = Packet::new(Code::AccessRequest, b"secret");
+        cisco::add_cisco_av_pair(&mut packet, "shell:priv-lvl=15");
+        assert!(cisco::lookup_cisco_av_pair(&packet).is_some());
+        cisco::delete_cisco_av_pair(&mut packet);
+        assert!(cisco::lookup_cisco_av_pair(&packet).is_none());
+    }
+
+    #[test]
+    fn test_cisco_nas_port_roundtrip() {
+        let mut packet = Packet::new(Code::AccessRequest, b"secret");
+        cisco::add_cisco_nas_port(&mut packet, "GigabitEthernet0/1");
+        let val = cisco::lookup_cisco_nas_port(&packet).unwrap().unwrap();
+        assert_eq!(val, "GigabitEthernet0/1");
+    }
+
+    #[test]
+    fn test_cisco_multilink_id_integer_roundtrip() {
+        let mut packet = Packet::new(Code::AccessRequest, b"secret");
+        cisco::add_cisco_multilink_id(&mut packet, 42);
+        let val = cisco::lookup_cisco_multilink_id(&packet).unwrap().unwrap();
+        assert_eq!(val, 42_u32);
+    }
+
+    #[test]
+    fn test_cisco_disconnect_cause_value_roundtrip() {
+        let mut packet = Packet::new(Code::AccountingRequest, b"secret");
+        cisco::add_cisco_disconnect_cause(
+            &mut packet,
+            cisco::CISCO_DISCONNECT_CAUSE_SESSION_TIMEOUT,
+        );
+        let val = cisco::lookup_cisco_disconnect_cause(&packet)
+            .unwrap()
+            .unwrap();
+        assert_eq!(val, cisco::CISCO_DISCONNECT_CAUSE_SESSION_TIMEOUT);
+        assert_eq!(val, 100);
+    }
+
+    #[test]
+    fn test_cisco_vsa_encode_decode_wire_roundtrip() {
+        // Full encode → wire bytes → decode cycle for a packet with mixed VSAs.
+        let secret = b"testing123";
+        let mut req = Packet::new_with_identifier(Code::AccessRequest, secret, 1);
+        rfc2865::add_user_name(&mut req, "alice");
+        cisco::add_cisco_av_pair(&mut req, "shell:priv-lvl=15");
+        cisco::add_cisco_multilink_id(&mut req, 7);
+
+        let wire = req.encode().unwrap();
+        let decoded = Packet::decode(&wire, secret).unwrap();
+
+        assert_eq!(
+            rfc2865::lookup_user_name(&decoded).unwrap().unwrap(),
+            "alice"
+        );
+        assert_eq!(
+            cisco::lookup_cisco_av_pair(&decoded).unwrap().unwrap(),
+            "shell:priv-lvl=15"
+        );
+        assert_eq!(
+            cisco::lookup_cisco_multilink_id(&decoded).unwrap().unwrap(),
+            7
+        );
     }
 }

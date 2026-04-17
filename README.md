@@ -98,6 +98,46 @@ radius = { version = "__version__", default-features = false, features = ["md5"]
       - This method adds a `User-Name` AVP to the packet.
   - Please refer to the rustdoc for each dictionary module in detail.
 
+### Vendor-Specific Attributes (VSAs)
+
+Vendor dictionaries expose the same `add_*` / `lookup_*` / `lookup_all_*` / `delete_*` interface as RFC dictionaries, but encode values inside a type-26 Vendor-Specific AVP automatically.
+
+```rust
+use radius::core::code::Code;
+use radius::core::packet::Packet;
+use radius::dict::{cisco, rfc2865};
+
+// Build an Access-Request with standard and Cisco-specific attributes.
+let mut req = Packet::new(Code::AccessRequest, b"secret");
+rfc2865::add_user_name(&mut req, "alice");
+
+// String VSA — multiple values per attribute are supported.
+cisco::add_cisco_av_pair(&mut req, "shell:priv-lvl=15");
+cisco::add_cisco_av_pair(&mut req, "audit:event=login");
+cisco::add_cisco_nas_port(&mut req, "GigabitEthernet0/1");
+
+// Decode after a wire roundtrip.
+let wire = req.encode().unwrap();
+let decoded = Packet::decode(&wire, b"secret").unwrap();
+
+let all_pairs = cisco::lookup_all_cisco_av_pair(&decoded).unwrap();
+// => ["shell:priv-lvl=15", "audit:event=login"]
+
+// Integer VSA.
+let mut acct = Packet::new(Code::AccountingRequest, b"secret");
+cisco::add_cisco_multilink_id(&mut acct, 7);
+cisco::add_cisco_disconnect_cause(&mut acct, cisco::CISCO_DISCONNECT_CAUSE_SESSION_TIMEOUT);
+```
+
+For low-level access, `Packet::lookup_vsa(vendor_id, vendor_type)` and
+`Packet::lookup_all_vsa` / `Packet::delete_vsa` are also available.
+
+A runnable example is provided at [examples/cisco_vsa.rs](./examples/cisco_vsa.rs):
+
+```
+$ cargo run --example cisco_vsa --package examples
+```
+
 ### Server
 
 - Must implement `RequestHandler<T, E>` interface.

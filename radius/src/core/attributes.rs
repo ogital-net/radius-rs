@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
-use crate::core::avp::{AVPType, AVP};
+use crate::core::avp::{AVPType, AVP, VENDOR_SPECIFIC_TYPE};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Attributes(pub(crate) Vec<AVP>);
@@ -46,6 +46,12 @@ impl Attributes {
 
     pub(crate) fn del(&mut self, typ: AVPType) {
         self.0.retain(|avp| avp.typ != typ);
+    }
+
+    pub(crate) fn del_vsa(&mut self, vendor_id: u32, vendor_type: u8) {
+        self.0.retain(|avp| {
+            avp.typ != VENDOR_SPECIFIC_TYPE || avp.decode_vsa(vendor_id, vendor_type).is_none()
+        });
     }
 
     pub(crate) fn lookup(&self, typ: AVPType) -> Option<&AVP> {

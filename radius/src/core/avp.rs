@@ -54,6 +54,8 @@ pub enum AVPError {
 pub type AVPType = u8;
 
 pub const TYPE_INVALID: AVPType = 255;
+/// The RADIUS Vendor-Specific attribute type (RFC 2865 §5.26).
+pub const VENDOR_SPECIFIC_TYPE: AVPType = 26;
 
 /// This struct represents a attribute-value pair.
 #[derive(Clone, PartialEq)]
@@ -343,6 +345,52 @@ impl AVP {
             typ,
             value: Bytes::copy_from_slice(value),
         }
+    }
+
+    /// Build a Vendor-Specific Attribute (type 26, RFC 2865 §5.26) wrapping a sub-attribute.
+    ///
+    /// The resulting AVP has `typ = 26` and a value of:
+    /// `vendor_id (4 bytes) | vendor_type (1 byte) | vendor_length (1 byte) | payload`
+    /// where `vendor_length = 2 + payload.len()`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `payload.len() > 253` (vendor-length would overflow a `u8`).
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn from_vsa(vendor_id: u32, vendor_type: u8, payload: &[u8]) -> Self {
+        assert!(
+            payload.len() <= 253,
+            "VSA payload too large: {} bytes (max 253)",
+            payload.len()
+        );
+        let mut buf = BytesMut::with_capacity(6 + payload.len());
+        buf.put_u32(vendor_id);
+        buf.put_u8(vendor_type);
+        buf.put_u8((2 + payload.len()) as u8);
+        buf.put_slice(payload);
+        AVP {
+            typ: VENDOR_SPECIFIC_TYPE,
+            value: buf.freeze(),
+        }
+    }
+
+    /// If this AVP is a Vendor-Specific (type 26) attribute matching `(vendor_id, vendor_type)`,
+    /// return the inner value bytes. Otherwise return `None`.
+    #[must_use]
+    pub fn decode_vsa(&self, vendor_id: u32, vendor_type: u8) -> Option<Bytes> {
+        if self.typ != VENDOR_SPECIFIC_TYPE || self.value.len() < 6 {
+            return None;
+        }
+        let vid = u32::from_be_bytes([self.value[0], self.value[1], self.value[2], self.value[3]]);
+        if vid != vendor_id || self.value[4] != vendor_type {
+            return None;
+        }
+        let vlen = self.value[5] as usize;
+        if vlen < 2 || 6 + vlen - 2 > self.value.len() {
+            return None;
+        }
+        Some(self.value.slice(6..6 + vlen - 2))
     }
 
     /// (This method is for dictionary developers) make an AVP from a IPv4 value.

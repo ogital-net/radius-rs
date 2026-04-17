@@ -9,4 +9,3 @@ pub(crate) mod crypto;
 pub mod packet;
 pub mod request;
 pub mod tag;
-pub mod vsa;
