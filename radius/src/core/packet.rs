@@ -268,17 +268,16 @@ impl Packet {
             return false;
         }
 
-        crypto::md5(
-            &[
-                &response[..4],
-                &request[4..RADIUS_PACKET_HEADER_LENGTH],
-                &response[RADIUS_PACKET_HEADER_LENGTH..],
-                secret,
-            ]
-            .concat(),
-        )
-        .to_vec()
-        .eq(&response[4..RADIUS_PACKET_HEADER_LENGTH].to_vec())
+        let mut buf = Vec::with_capacity(
+            4 + (RADIUS_PACKET_HEADER_LENGTH - 4)
+                + (response.len() - RADIUS_PACKET_HEADER_LENGTH)
+                + secret.len(),
+        );
+        buf.extend_from_slice(&response[..4]);
+        buf.extend_from_slice(&request[4..RADIUS_PACKET_HEADER_LENGTH]);
+        buf.extend_from_slice(&response[RADIUS_PACKET_HEADER_LENGTH..]);
+        buf.extend_from_slice(secret);
+        crypto::md5(&buf) == response[4..RADIUS_PACKET_HEADER_LENGTH]
     }
 
     /// Returns whether the Packet is authentic request or not.
@@ -290,20 +289,16 @@ impl Packet {
 
         match Code::from(request[0]) {
             Code::AccessRequest | Code::StatusServer => true,
-            Code::AccountingRequest | Code::DisconnectRequest | Code::CoARequest => crypto::md5(
-                &[
-                    &request[..4],
-                    &[
-                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                        0x00, 0x00, 0x00, 0x00,
-                    ],
-                    &request[RADIUS_PACKET_HEADER_LENGTH..],
-                    secret,
-                ]
-                .concat(),
-            )
-            .to_vec()
-            .eq(&request[4..RADIUS_PACKET_HEADER_LENGTH].to_vec()),
+            Code::AccountingRequest | Code::DisconnectRequest | Code::CoARequest => {
+                let mut buf = Vec::with_capacity(
+                    4 + 16 + (request.len() - RADIUS_PACKET_HEADER_LENGTH) + secret.len(),
+                );
+                buf.extend_from_slice(&request[..4]);
+                buf.extend_from_slice(&[0u8; 16]);
+                buf.extend_from_slice(&request[RADIUS_PACKET_HEADER_LENGTH..]);
+                buf.extend_from_slice(secret);
+                crypto::md5(&buf) == request[4..RADIUS_PACKET_HEADER_LENGTH]
+            }
             _ => false,
         }
     }

@@ -249,32 +249,38 @@ impl AVP {
             return Err(AVPError::InvalidRequestAuthenticatorLength());
         }
 
-        let mut buff = request_authenticator.to_vec();
+        // Pre-allocate a single buffer for MD5 inputs: secret || prev_block (16 bytes).
+        // Reusing it avoids a heap allocation on every iteration.
+        let secret_len = secret.len();
+        let mut md5_input = Vec::with_capacity(secret_len + 16);
+        md5_input.extend_from_slice(secret);
+        md5_input.extend_from_slice(request_authenticator);
 
         if plain_text.is_empty() {
-            let enc_block = crypto::md5(&[secret, &buff[..]].concat());
+            let enc_block = crypto::md5(&md5_input);
             return Ok(AVP {
                 typ,
-                value: Bytes::from_iter(enc_block.iter().zip([0u8; 16]).map(|(d, p)| d ^ p)),
+                value: Bytes::copy_from_slice(&enc_block),
             });
         }
 
         let num_chunks = plain_text.len().div_ceil(16);
         let mut enc = BytesMut::with_capacity(num_chunks * 16);
         for chunk in plain_text.chunks(16) {
-            let mut chunk_vec = chunk.to_vec();
-            let l = chunk.len();
-            if l < 16 {
-                chunk_vec.extend(vec![0; 16 - l]); // zero padding
-            }
+            // Zero-pad the chunk to 16 bytes on the stack — no heap allocation.
+            let mut padded = [0u8; 16];
+            padded[..chunk.len()].copy_from_slice(chunk);
 
-            let enc_block = crypto::md5(&[secret, &buff[..]].concat());
-            buff = enc_block
-                .iter()
-                .zip(chunk_vec)
-                .map(|(d, p)| d ^ p)
-                .collect();
-            enc.put_slice(&buff);
+            let enc_block = crypto::md5(&md5_input);
+            let mut block = [0u8; 16];
+            for (i, (&d, p)) in enc_block.iter().zip(padded).enumerate() {
+                block[i] = d ^ p;
+            }
+            enc.put_slice(&block);
+
+            // Next iteration hashes secret || this ciphertext block.
+            md5_input.truncate(secret_len);
+            md5_input.extend_from_slice(&block);
         }
 
         Ok(AVP {
@@ -359,17 +365,18 @@ impl AVP {
         enc.put_u8(tag.map_or(UNUSED_TAG_VALUE, |v| v.value));
         enc.put_slice(&salt);
 
-        let mut buff = [request_authenticator, &salt].concat();
-        let enc_block = crypto::md5(&[secret, &buff[..]].concat());
+        // Pre-allocate a reusable MD5 input buffer.
+        // Round 1:  MD5(secret || request_authenticator || salt)  (18-byte suffix)
+        // Round N:  MD5(secret || prev_ciphertext_block)          (16-byte suffix)
+        let secret_len = secret.len();
+        let mut md5_input = Vec::with_capacity(secret_len + 18);
+        md5_input.extend_from_slice(secret);
+        md5_input.extend_from_slice(request_authenticator);
+        md5_input.extend_from_slice(&salt);
 
         if plain_text.is_empty() {
-            enc.put_slice(
-                &enc_block
-                    .iter()
-                    .zip([0u8; 16])
-                    .map(|(d, p)| d ^ p)
-                    .collect::<Vec<_>>(),
-            );
+            let enc_block = crypto::md5(&md5_input);
+            enc.put_slice(&enc_block);
             return Ok(AVP {
                 typ,
                 value: enc.freeze(),
@@ -377,19 +384,20 @@ impl AVP {
         }
 
         for chunk in plain_text.chunks(16) {
-            let mut chunk_vec = chunk.to_vec();
-            let l = chunk.len();
-            if l < 16 {
-                chunk_vec.extend(vec![0; 16 - l]); // zero padding
-            }
+            // Zero-pad the chunk to 16 bytes on the stack — no heap allocation.
+            let mut padded = [0u8; 16];
+            padded[..chunk.len()].copy_from_slice(chunk);
 
-            let enc_block = crypto::md5(&[secret, &buff[..]].concat());
-            buff = enc_block
-                .iter()
-                .zip(chunk_vec)
-                .map(|(d, p)| d ^ p)
-                .collect();
-            enc.put_slice(&buff);
+            let enc_block = crypto::md5(&md5_input);
+            let mut block = [0u8; 16];
+            for (i, (&d, p)) in enc_block.iter().zip(padded).enumerate() {
+                block[i] = d ^ p;
+            }
+            enc.put_slice(&block);
+
+            // Next iteration hashes secret || this ciphertext block.
+            md5_input.truncate(secret_len);
+            md5_input.extend_from_slice(&block);
         }
 
         Ok(AVP {
@@ -634,30 +642,28 @@ impl AVP {
             return Err(AVPError::InvalidRequestAuthenticatorLength());
         }
 
-        let mut dec: Vec<u8> = Vec::new();
-        let mut buff: Vec<u8> = request_authenticator.to_vec();
+        let secret_len = secret.len();
+        let mut dec: Vec<u8> = Vec::with_capacity(self.value.len());
+        let mut md5_input = Vec::with_capacity(secret_len + 16);
+        md5_input.extend_from_slice(secret);
+        md5_input.extend_from_slice(request_authenticator);
 
         // NOTE:
         // It ensures attribute value has 16 bytes length at least because the value is encoded by md5.
         // And this must be aligned by each 16 bytes length.
         for chunk in self.value.chunks(16) {
-            let chunk_vec = chunk.to_vec();
-            let dec_block = crypto::md5(&[secret, &buff[..]].concat());
-            dec.extend(
-                dec_block
-                    .iter()
-                    .zip(&chunk_vec)
-                    .map(|(d, p)| d ^ p)
-                    .collect::<Vec<u8>>(),
-            );
-            buff = chunk_vec;
+            let dec_block = crypto::md5(&md5_input);
+            for (&d, &p) in dec_block.iter().zip(chunk) {
+                dec.push(d ^ p);
+            }
+            // Next iteration hashes secret || this ciphertext chunk.
+            md5_input.truncate(secret_len);
+            md5_input.extend_from_slice(chunk);
         }
 
         // remove trailing zero bytes
-        match dec.split(|b| *b == 0).next() {
-            Some(dec) => Ok(dec.to_vec()),
-            None => Ok(vec![]),
-        }
+        let end = memchr::memchr(0, &dec).unwrap_or(dec.len());
+        Ok(dec[..end].to_vec())
     }
 
     /// (This method is for dictionary developers) encode an AVP into date value.
@@ -719,28 +725,29 @@ impl AVP {
         let tag = Tag {
             value: self.value[0],
         };
-        let mut dec: Vec<u8> = Vec::new();
-        let mut buff: Vec<u8> =
-            [request_authenticator.to_vec(), self.value[1..3].to_vec()].concat();
+        let ciphertext = &self.value[3..];
+        let secret_len = secret.len();
+        let mut dec = Vec::with_capacity(ciphertext.len());
+        // Round 1: MD5(secret || request_authenticator || salt)
+        // Round N: MD5(secret || prev_ciphertext_chunk)
+        let mut md5_input = Vec::with_capacity(secret_len + 18);
+        md5_input.extend_from_slice(secret);
+        md5_input.extend_from_slice(request_authenticator);
+        md5_input.extend_from_slice(&self.value[1..3]); // salt
 
-        for chunk in self.value[3..].chunks(16) {
-            let chunk_vec = chunk.to_vec();
-            let dec_block = crypto::md5(&[secret, &buff[..]].concat());
-            dec.extend(
-                dec_block
-                    .iter()
-                    .zip(&chunk_vec)
-                    .map(|(d, p)| d ^ p)
-                    .collect::<Vec<u8>>(),
-            );
-            buff = chunk_vec;
+        for chunk in ciphertext.chunks(16) {
+            let dec_block = crypto::md5(&md5_input);
+            for (&d, &p) in dec_block.iter().zip(chunk) {
+                dec.push(d ^ p);
+            }
+            // Next iteration hashes secret || this ciphertext chunk.
+            md5_input.truncate(secret_len);
+            md5_input.extend_from_slice(chunk);
         }
 
         // remove trailing zero bytes
-        match dec.split(|b| *b == 0).next() {
-            Some(dec) => Ok((dec.to_vec(), tag)),
-            None => Ok((vec![], tag)),
-        }
+        let end = memchr::memchr(0, &dec).unwrap_or(dec.len());
+        Ok((dec[..end].to_vec(), tag))
     }
 }
 

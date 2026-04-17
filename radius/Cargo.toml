@@ -21,7 +21,19 @@ rand = { version = "0.10.1", optional = true }
 bytes = "1"
 thiserror = "2.0.18"
 log = "0"
+memchr = "2"
 tokio = { version = "1.52.1", features = ["net", "time", "macros", "rt"] }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "packet"
+harness = false
+
+[[bench]]
+name = "avp"
+harness = false
 
 [features]
 default = ["aws-lc"]
