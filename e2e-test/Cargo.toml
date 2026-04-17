@@ -6,5 +6,11 @@ license-file = "../LICENSE"
 publish = false
 
 [dependencies]
-radius = { version = "0.4.0", path = "../radius" }
+radius = { version = "0.4.0", path = "../radius", default-features = false }
 tokio = { version = "1.52.1", features = ["net", "time", "sync", "macros", "rt"] }
+
+[features]
+default = ["aws-lc"]
+aws-lc = ["radius/aws-lc"]
+md5 = ["radius/md5"]
+openssl = ["radius/openssl"]
