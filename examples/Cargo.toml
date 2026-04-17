@@ -7,10 +7,16 @@ license-file = "../LICENSE"
 repository = "https://github.com/moznion/radius-rs"
 
 [dev-dependencies]
-radius = { version = "0.4.0", path = "../radius" }
+radius = { version = "0.4.0", path = "../radius", default-features = false }
 log = "0.4.11"
 env_logger = "0.8.2"
 tokio = { version = "1.52.1", features = ["net", "signal", "time", "macros", "rt-multi-thread"] }
+
+[features]
+default = ["aws-lc"]
+aws-lc = ["radius/aws-lc"]
+md5 = ["radius/md5"]
+openssl = ["radius/openssl"]
 
 [[example]]
 name = "server"
