@@ -236,7 +236,7 @@ pub trait RequestHandler<T, E>: 'static + Sync + Send {
     /// # Arguments
     ///
     /// * conn - This connection is associated with the remote requester. In the most situations,
-    ///          you have to send a response through this connection object.
+    ///   you have to send a response through this connection object.
     /// * request - This is a request object that comes from the remote requester.
     fn handle_radius_request(
         &self,
