@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-build-test:
+    runs-on: ${{ matrix.os }} 
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain and components
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install freeradius (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y freeradius
+      - name: Generate code
+        run: cargo build --package radius
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run clippy (aws-lc, deny warnings)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Run clippy (openssl, deny warnings)
+        run: cd radius && cargo clippy --all-targets --no-default-features --features openssl -- -D warnings
+      - name: Run clippy (md5, deny warnings)
+        run: cd radius && cargo clippy --all-targets --no-default-features --features md5 -- -D warnings
+      - name: Run tests (aws-lc)
+        run: cargo test --workspace --verbose
+      - name: Run tests (openssl)
+        run: cd radius && cargo test --no-default-features --features openssl --verbose
+      - name: Run tests (md5)
+        run: cd radius && cargo test --no-default-features --features md5 --verbose
+      - name: Build release
+        run: cargo build --release
