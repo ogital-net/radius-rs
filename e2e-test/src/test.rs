@@ -136,11 +136,11 @@ mod tests {
     async fn test_access_request() {
         let (sender, receiver) = oneshot::channel::<()>();
 
-        let port = 1812;
-
-        let mut server = Server::listen("0.0.0.0", port, MyRequestHandler {}, MySecretProvider {})
+        let mut server = Server::listen("127.0.0.1", 0, MyRequestHandler {}, MySecretProvider {})
             .await
             .unwrap();
+
+        let port = server.listen_address().unwrap().port();
 
         let server_proc = tokio::spawn(async move {
             server.run(receiver).await.unwrap();
@@ -173,16 +173,16 @@ mod tests {
     async fn test_socket_timeout() {
         let (sender, receiver) = oneshot::channel::<()>();
 
-        let port = 1812;
-
         let mut server = Server::listen(
-            "0.0.0.0",
-            port,
+            "127.0.0.1",
+            0,
             LongTimeTakingHandler {},
             MySecretProvider {},
         )
         .await
         .unwrap();
+
+        let port = server.listen_address().unwrap().port();
 
         let server_proc = tokio::spawn(async move {
             server.run(receiver).await.unwrap();
