@@ -9,7 +9,7 @@ use tokio::time::timeout;
 
 use crate::core::packet::Packet;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum ClientError {
     /// This error is occurred when UDP socket binding has been failed.
     #[error("failed to bind a UDP socket; {0}")]
@@ -47,6 +47,31 @@ pub enum ClientError {
 }
 
 /// A basic implementation of the RADIUS client.
+///
+/// Sends a single encoded [`Packet`] over UDP and returns the decoded response.
+/// Does not perform automatic retransmission.
+///
+/// # Example
+///
+/// ```no_run
+/// # use std::error::Error;
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn Error>> {
+/// use std::net::SocketAddr;
+/// use std::time::Duration;
+/// use radius::client::Client;
+/// use radius::core::code::Code;
+/// use radius::core::packet::Packet;
+///
+/// let client = Client::new(Some(Duration::from_secs(5)), None);
+/// let addr: SocketAddr = "127.0.0.1:1812".parse()?;
+/// let packet = Packet::new(Code::AccessRequest, b"secret");
+/// let response = client.send_packet(&addr, &packet).await?;
+/// println!("Response code: {}", response.code());
+/// #     Ok(())
+/// # }
+/// ```
+#[derive(Debug)]
 pub struct Client {
     connection_timeout: Option<Duration>,
     socket_timeout: Option<Duration>,
@@ -130,7 +155,7 @@ impl Client {
             None => self.request(&conn, &request_data, remote_addr).await,
         }?;
 
-        match Packet::decode(&response, request_packet.get_secret()) {
+        match Packet::decode(&response, request_packet.secret()) {
             Ok(response_packet) => Ok(response_packet),
             Err(e) => Err(ClientError::FailedDecodingRadiusResponseError(format!(
                 "{e}"

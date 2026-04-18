@@ -20,7 +20,7 @@ pub enum AVPError {
 
     /// This error is raised when the given request-authenticator for the password doesn't have 16 bytes length exactly.
     #[error("request authenticator for password has to have 16-bytes payload, but the given value doesn't")]
-    InvalidRequestAuthenticatorLength(),
+    InvalidRequestAuthenticatorLengthError(),
 
     /// This error is raised when attribute length is conflicted with the expected.
     #[error("invalid attribute length: expected={0}, actual={1} bytes")]
@@ -45,10 +45,6 @@ pub enum AVPError {
     /// This error is raised when a tag is invalid for the tagged-integer value.
     #[error("invalid tag for integer value. this must be less than or equal 0x1f")]
     InvalidTagForIntegerValueError(),
-
-    /// This error is raised when computation of hash fails using openssl hash
-    #[error("computation of hash failed: {0}")]
-    HashComputationFailed(String),
 }
 
 pub type AVPType = u8;
@@ -57,8 +53,27 @@ pub const TYPE_INVALID: AVPType = 255;
 /// The RADIUS Vendor-Specific attribute type (RFC 2865 §5.26).
 pub const VENDOR_SPECIFIC_TYPE: AVPType = 26;
 
-/// This struct represents a attribute-value pair.
-#[derive(Clone, PartialEq)]
+/// An attribute-value pair (AVP) from a RADIUS packet.
+///
+/// Each AVP consists of a 1-byte type identifier and a variable-length value.
+/// The helper constructors (`from_string`, `from_u32`, etc.) and decoders
+/// (`encode_string`, `encode_u32`, etc.) handle all type conversions.
+///
+/// # Example
+///
+/// ```
+/// use radius::core::avp::AVP;
+///
+/// // Build an AVP for User-Name (type 1) and round-trip it.
+/// let avp = AVP::from_string(1, "alice");
+/// assert_eq!(avp.encode_string().unwrap(), "alice");
+///
+/// // IPv4 address AVP.
+/// use std::net::Ipv4Addr;
+/// let avp = AVP::from_ipv4(4, &Ipv4Addr::new(192, 168, 1, 1));
+/// assert_eq!(avp.encode_ipv4().unwrap(), Ipv4Addr::new(192, 168, 1, 1));
+/// ```
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct AVP {
     pub(crate) typ: AVPType,
     pub(crate) value: Bytes,
@@ -512,7 +527,7 @@ impl AVP {
         }
 
         if request_authenticator.len() != 16 {
-            return Err(AVPError::InvalidRequestAuthenticatorLength());
+            return Err(AVPError::InvalidRequestAuthenticatorLengthError());
         }
 
         // Pre-allocate a single buffer for MD5 inputs: secret || prev_block (16 bytes).
@@ -609,7 +624,7 @@ impl AVP {
         }
 
         if request_authenticator.len() != 16 {
-            return Err(AVPError::InvalidRequestAuthenticatorLength());
+            return Err(AVPError::InvalidRequestAuthenticatorLengthError());
         }
 
         let mut salt = [0u8; 2];
@@ -915,7 +930,7 @@ impl AVP {
         }
 
         if request_authenticator.len() != 16 {
-            return Err(AVPError::InvalidRequestAuthenticatorLength());
+            return Err(AVPError::InvalidRequestAuthenticatorLengthError());
         }
 
         let secret_len = secret.len();
@@ -995,7 +1010,7 @@ impl AVP {
         }
 
         if request_authenticator.len() != 16 {
-            return Err(AVPError::InvalidRequestAuthenticatorLength());
+            return Err(AVPError::InvalidRequestAuthenticatorLengthError());
         }
 
         let tag = Tag {
@@ -1475,7 +1490,7 @@ mod tests {
     fn from_user_password_should_fail_on_wrong_authenticator_length() {
         assert_eq!(
             AVP::from_user_password(1, b"pass", b"secret", b"short").unwrap_err(),
-            AVPError::InvalidRequestAuthenticatorLength()
+            AVPError::InvalidRequestAuthenticatorLengthError()
         );
     }
 
@@ -1524,7 +1539,7 @@ mod tests {
         };
         assert_eq!(
             avp.encode_user_password(b"secret", b"short").unwrap_err(),
-            AVPError::InvalidRequestAuthenticatorLength()
+            AVPError::InvalidRequestAuthenticatorLengthError()
         );
     }
 
@@ -1540,7 +1555,7 @@ mod tests {
     fn from_tunnel_password_should_fail_on_wrong_authenticator_length() {
         assert_eq!(
             AVP::from_tunnel_password(1, None, b"pass", b"secret", b"short").unwrap_err(),
-            AVPError::InvalidRequestAuthenticatorLength()
+            AVPError::InvalidRequestAuthenticatorLengthError()
         );
     }
 
@@ -1602,7 +1617,7 @@ mod tests {
         };
         assert_eq!(
             avp.encode_tunnel_password(b"secret", b"short").unwrap_err(),
-            AVPError::InvalidRequestAuthenticatorLength()
+            AVPError::InvalidRequestAuthenticatorLengthError()
         );
     }
 }

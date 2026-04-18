@@ -2,7 +2,7 @@ use bytes::Bytes;
 
 use crate::core::avp::{AVPType, AVP, VENDOR_SPECIFIC_TYPE};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Attributes(pub(crate) Vec<AVP>);
 
 impl Attributes {

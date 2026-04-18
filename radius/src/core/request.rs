@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use crate::core::packet::Packet;
 
 /// RADIUS request object.
+#[derive(Debug)]
 pub struct Request {
     local_addr: SocketAddr,
     remote_addr: SocketAddr,
@@ -20,17 +21,17 @@ impl Request {
     }
 
     #[must_use]
-    pub fn get_local_addr(&self) -> SocketAddr {
+    pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
     }
 
     #[must_use]
-    pub fn get_remote_addr(&self) -> SocketAddr {
+    pub fn remote_addr(&self) -> SocketAddr {
         self.remote_addr
     }
 
     #[must_use]
-    pub fn get_packet(&self) -> &Packet {
+    pub fn packet(&self) -> &Packet {
         &self.packet
     }
 }

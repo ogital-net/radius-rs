@@ -22,7 +22,7 @@ const DEFAULT_SKIP_AUTHENTICITY_VALIDATION: bool = false;
 ///
 /// ## Example Usage
 /// - <https://github.com/moznion/radius-rs/blob/HEAD/examples/server.rs>
-pub struct Server<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> {
+pub struct Server<X, E, T: RequestHandler<X, E>, U: SecretProvider> {
     skip_authenticity_validation: bool,
     buf_size: usize,
     conn_arc: Arc<UdpSocket>,
@@ -35,6 +35,19 @@ pub struct Server<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> {
     undergoing_requests_lock_arc: Arc<Mutex<HashSet<RequestKey>>>,
     _phantom_return_type: PhantomData<X>,
     _phantom_error_type: PhantomData<E>,
+}
+
+impl<X, E, T: RequestHandler<X, E>, U: SecretProvider> std::fmt::Debug for Server<X, E, T, U> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Server")
+            .field("conn", &self.conn_arc)
+            .field("buf_size", &self.buf_size)
+            .field(
+                "skip_authenticity_validation",
+                &self.skip_authenticity_validation,
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U> {
@@ -122,7 +135,7 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
     /// # Errors
     ///
     /// Returns [`io::Error`] if the local address cannot be retrieved from the socket.
-    pub fn get_listen_address(&self) -> io::Result<SocketAddr> {
+    pub fn listen_address(&self) -> io::Result<SocketAddr> {
         self.conn_arc.local_addr()
     }
 
@@ -205,7 +218,7 @@ impl<X, E: Debug, T: RequestHandler<X, E>, U: SecretProvider> Server<X, E, T, U>
 
         let key = RequestKey {
             addr: remote_addr,
-            identifier: packet.get_identifier(),
+            identifier: packet.identifier(),
         };
         let key_for_remove = key;
 
@@ -251,7 +264,7 @@ pub trait RequestHandler<T, E>: 'static + Sync + Send {
     ) -> impl std::future::Future<Output = Result<T, E>> + Send;
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq, Clone)]
 pub enum SecretProviderError {
     /// An error that represents a failure to fetch a secret value from the provider.
     #[error("failed to fetch a secret value: {0}")]

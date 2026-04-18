@@ -746,7 +746,7 @@ fn generate_user_password_attribute_code(
 ///
 /// Returns an `AVPError` if encoding the user-password value fails.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), AVPError> {{
-    packet.add(AVP::from_user_password({type_identifier}, value, packet.get_secret(), packet.get_authenticator())?);
+    packet.add(AVP::from_user_password({type_identifier}, value, packet.secret(), packet.authenticator())?);
     Ok(())
 }}
 /// Lookup a `{method_identifier}` user-password value from a packet.
@@ -758,7 +758,7 @@ pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), 
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVPError>> {{
-    packet.lookup({type_identifier}).map(|v| v.encode_user_password(packet.get_secret(), packet.get_authenticator()))
+    packet.lookup({type_identifier}).map(|v| v.encode_user_password(packet.secret(), packet.authenticator()))
 }}
 /// Lookup all of the `{method_identifier}` user-password value from a packet.
 ///
@@ -769,7 +769,7 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVP
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Vec<u8>>, AVPError> {{
     let mut vec = Vec::new();
     for avp in packet.lookup_all({type_identifier}) {{
-        vec.push(avp.encode_user_password(packet.get_secret(), packet.get_authenticator())?);
+        vec.push(avp.encode_user_password(packet.secret(), packet.authenticator())?);
     }}
     Ok(vec)
 }}
@@ -789,7 +789,7 @@ fn generate_tunnel_password_attribute_code(
 ///
 /// Returns an `AVPError` if encoding the tunnel-password value fails.
 pub fn add_{method_identifier}(packet: &mut Packet, tag: Option<&Tag>, value: &[u8]) -> Result<(), AVPError> {{
-    packet.add(AVP::from_tunnel_password({type_identifier}, tag, value, packet.get_secret(), packet.get_authenticator())?);
+    packet.add(AVP::from_tunnel_password({type_identifier}, tag, value, packet.secret(), packet.authenticator())?);
     Ok(())
 }}
 /// Lookup a `{method_identifier}` tunnel-password value from a packet.
@@ -801,7 +801,7 @@ pub fn add_{method_identifier}(packet: &mut Packet, tag: Option<&Tag>, value: &[
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<(Vec<u8>, Tag), AVPError>> {{
-    packet.lookup({type_identifier}).map(|v| v.encode_tunnel_password(packet.get_secret(), packet.get_authenticator()))
+    packet.lookup({type_identifier}).map(|v| v.encode_tunnel_password(packet.secret(), packet.authenticator()))
 }}
 /// Lookup all of the `{method_identifier}` tunnel-password value from a packet.
 ///
@@ -812,7 +812,7 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<(Vec<u8>, Ta
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<(Vec<u8>, Tag)>, AVPError> {{
     let mut vec = Vec::new();
     for avp in packet.lookup_all({type_identifier}) {{
-        vec.push(avp.encode_tunnel_password(packet.get_secret(), packet.get_authenticator())?);
+        vec.push(avp.encode_tunnel_password(packet.secret(), packet.authenticator())?);
     }}
     Ok(vec)
 }}
@@ -1390,7 +1390,7 @@ fn generate_vsa_user_password_attribute_code(
 ///
 /// Returns an `AVPError` if encoding the user-password value fails.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), AVPError> {{
-    let encoded = AVP::from_user_password(0, value, packet.get_secret(), packet.get_authenticator())?;
+    let encoded = AVP::from_user_password(0, value, packet.secret(), packet.authenticator())?;;
     packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &encoded.encode_bytes()));
     Ok(())
 }}
@@ -1407,7 +1407,7 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVP
         .lookup_vsa({vendor_id}_u32, {type_identifier})
         .map(|payload| {{
             AVP::from_bytes(0, &payload)
-                .encode_user_password(packet.get_secret(), packet.get_authenticator())
+                .encode_user_password(packet.secret(), packet.authenticator())
         }})
 }}
 /// Lookup all of the `{method_identifier}` user-password values from a packet.
@@ -1421,7 +1421,7 @@ pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Vec<u8>>, A
     for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
         vec.push(
             AVP::from_bytes(0, &payload)
-                .encode_user_password(packet.get_secret(), packet.get_authenticator())?,
+                .encode_user_password(packet.secret(), packet.authenticator())?,
         );
     }}
     Ok(vec)

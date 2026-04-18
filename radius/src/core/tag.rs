@@ -1,8 +1,24 @@
 pub(crate) const UNUSED_TAG_VALUE: u8 = 0x00;
 
 /// Tag represents a tag of a RADIUS value.
-/// see also: <http://www.ietf.org/rfc/rfc2868.html>
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// Tags are used to associate groups of attributes as defined in
+/// [RFC 2868](http://www.ietf.org/rfc/rfc2868.html). Valid values are `0x01`–`0x1f`;
+/// `0x00` means the tag field is unused.
+///
+/// # Example
+///
+/// ```
+/// use radius::core::tag::Tag;
+///
+/// let tag = Tag::new(1);
+/// assert!(tag.is_valid_value());
+/// assert_eq!(tag.value(), 1);
+///
+/// let unused = Tag::new_unused();
+/// assert!(unused.is_zero());
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Tag {
     pub(crate) value: u8,
 }
@@ -21,7 +37,7 @@ impl Tag {
     }
 
     #[must_use]
-    pub fn get_value(&self) -> u8 {
+    pub fn value(&self) -> u8 {
         self.value
     }
 

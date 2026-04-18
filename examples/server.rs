@@ -24,10 +24,7 @@ async fn main() {
     server.set_skip_authenticity_validation(false); // default value: false
 
     // once it has reached here, a RADIUS server is now ready
-    info!(
-        "serve is now ready: {}",
-        server.get_listen_address().unwrap()
-    );
+    info!("serve is now ready: {}", server.listen_address().unwrap());
 
     // start the loop to handle the RADIUS requests
     let result = server.run(signal::ctrl_c()).await;
@@ -45,7 +42,7 @@ impl RequestHandler<(), io::Error> for MyRequestHandler {
         conn: &UdpSocket,
         req: &Request,
     ) -> Result<(), io::Error> {
-        let req_packet = req.get_packet();
+        let req_packet = req.packet();
         let maybe_user_name_attr = rfc2865::lookup_user_name(req_packet);
         let maybe_user_password_attr = rfc2865::lookup_user_password(req_packet);
 
@@ -56,11 +53,11 @@ impl RequestHandler<(), io::Error> for MyRequestHandler {
         } else {
             Code::AccessReject
         };
-        info!("response => {:?} to {}", code, req.get_remote_addr());
+        info!("response => {:?} to {}", code, req.remote_addr());
 
         conn.send_to(
             &req_packet.make_response_packet(code).encode().unwrap(),
-            req.get_remote_addr(),
+            req.remote_addr(),
         )
         .await?;
         Ok(())

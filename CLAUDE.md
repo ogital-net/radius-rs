@@ -20,7 +20,6 @@ Random operations are assumed to be expensive. Where multiple random bytes of kn
 - **`radius`** — the main library crate; exposes `client`, `server`, and `core`.
 - **`code-generator`** — internal binary; not published; reads dict files and writes source.
 - **`examples`** — separate crate with `client.rs` and `server.rs` example binaries.
-- **`e2e-test`** — integration tests excluded from default runs; use `cargo test --workspace --exclude e2e-test`.
 - Workspace resolver is `"2"`; MSRV is **Rust 1.75**.
 
 ## Crypto Backends

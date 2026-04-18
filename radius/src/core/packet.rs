@@ -35,16 +35,32 @@ pub enum PacketError {
     EncodingError(String),
 
     /// An error that is raised when it received unknown packet type code of RADIUS.
-    #[error("Unknown RADIUS packet type code: {0}")]
+    #[error("unknown RADIUS packet type code: {0}")]
     UnknownCodeError(String),
 
     /// This error is raised when computation of hash fails using openssl hash
     #[error("computation of hash failed: {0}")]
-    HashComputationFailed(String),
+    HashComputationFailedError(String),
 }
 
 /// This struct represents a packet of RADIUS for request and response.
-#[derive(Clone, PartialEq)]
+///
+/// # Example
+///
+/// ```
+/// use radius::core::code::Code;
+/// use radius::core::packet::Packet;
+/// use radius::dict::rfc2865;
+///
+/// let mut packet = Packet::new(Code::AccessRequest, b"secret");
+/// rfc2865::add_user_name(&mut packet, "alice");
+/// let bytes = packet.encode().unwrap();
+///
+/// let decoded = Packet::decode(&bytes, b"secret").unwrap();
+/// assert_eq!(decoded.code(), Code::AccessRequest);
+/// assert_eq!(rfc2865::lookup_user_name(&decoded).unwrap().unwrap(), "alice");
+/// ```
+#[derive(Clone, PartialEq, Eq)]
 pub struct Packet {
     code: Code,
     identifier: u8,
@@ -96,22 +112,22 @@ impl Packet {
     }
 
     #[must_use]
-    pub fn get_code(&self) -> Code {
+    pub fn code(&self) -> Code {
         self.code
     }
 
     #[must_use]
-    pub fn get_identifier(&self) -> u8 {
+    pub fn identifier(&self) -> u8 {
         self.identifier
     }
 
     #[must_use]
-    pub fn get_secret(&self) -> &[u8] {
+    pub fn secret(&self) -> &[u8] {
         &self.secret
     }
 
     #[must_use]
-    pub fn get_authenticator(&self) -> &[u8] {
+    pub fn authenticator(&self) -> &[u8] {
         &self.authenticator
     }
 
@@ -207,17 +223,17 @@ impl Packet {
             | Code::AccountingResponse
             | Code::AccessChallenge
             | Code::DisconnectRequest
-            | Code::DisconnectACK
-            | Code::DisconnectNAK
-            | Code::CoARequest
-            | Code::CoAACK
-            | Code::CoANAK => {
+            | Code::DisconnectAck
+            | Code::DisconnectNak
+            | Code::CoaRequest
+            | Code::CoaAck
+            | Code::CoaNak => {
                 let mut buf: Vec<u8> = Vec::with_capacity(bs.len() + self.secret.len());
                 buf.extend_from_slice(&bs[..4]);
                 match self.code {
                     Code::AccountingRequest // see "Request Authenticator" in https://tools.ietf.org/html/rfc2866#section-3
                     | Code::DisconnectRequest // same as "RFC2866"; https://tools.ietf.org/html/rfc5176#section-2.3
-                    | Code::CoARequest // same as "RFC2866"; https://tools.ietf.org/html/rfc5176#section-2.3
+                    | Code::CoaRequest // same as "RFC2866"; https://tools.ietf.org/html/rfc5176#section-2.3
                     => {
                         buf.extend_from_slice(&[0u8; 16]);
                     }
@@ -299,7 +315,7 @@ impl Packet {
 
         match Code::from(request[0]) {
             Code::AccessRequest | Code::StatusServer => true,
-            Code::AccountingRequest | Code::DisconnectRequest | Code::CoARequest => {
+            Code::AccountingRequest | Code::DisconnectRequest | Code::CoaRequest => {
                 let mut buf = Vec::with_capacity(
                     4 + 16 + (request.len() - RADIUS_PACKET_HEADER_LENGTH) + secret.len(),
                 );
@@ -382,7 +398,7 @@ impl Debug for Packet {
         f.debug_struct("Packet")
             .field(
                 "code",
-                &format_args!("{} ({})", self.code.string(), self.code as u8),
+                &format_args!("{} ({})", self.code.as_str(), self.code as u8),
             )
             .field("identifier", &self.identifier)
             .field("authenticator", &hex_auth)
@@ -479,7 +495,7 @@ mod tests {
         ];
 
         let request_packet = Packet::decode(&request, &secret)?;
-        assert_eq!(request_packet.get_code(), Code::AccessRequest);
+        assert_eq!(request_packet.code(), Code::AccessRequest);
         assert_eq!(request_packet.identifier, 1);
         assert_eq!(
             rfc2865::lookup_user_name(&request_packet).unwrap().unwrap(),
@@ -518,8 +534,8 @@ mod tests {
         ];
         let response_packet = Packet::decode(&response, &secret).unwrap();
 
-        assert_eq!(response_packet.get_code(), Code::AccessAccept);
-        assert_eq!(response_packet.get_identifier(), 1);
+        assert_eq!(response_packet.code(), Code::AccessAccept);
+        assert_eq!(response_packet.identifier(), 1);
         assert_eq!(
             rfc2865::lookup_service_type(&response_packet)
                 .unwrap()
@@ -648,13 +664,13 @@ mod tests {
     #[test]
     fn test_with_arbitrary_identifier() {
         let mut packet = Packet::new(Code::AccessRequest, b"12345");
-        let random_ident = packet.get_identifier();
+        let random_ident = packet.identifier();
         let expected_ident = random_ident + 1;
         packet.set_identifier(expected_ident);
-        assert_eq!(packet.get_identifier(), expected_ident);
+        assert_eq!(packet.identifier(), expected_ident);
 
         packet = Packet::new_with_identifier(Code::AccessRequest, b"12345", expected_ident);
-        assert_eq!(packet.get_identifier(), expected_ident);
+        assert_eq!(packet.identifier(), expected_ident);
     }
 
     #[test]

@@ -21,7 +21,7 @@ impl RequestHandler<(), io::Error> for MyRequestHandler {
         conn: &UdpSocket,
         req: &Request,
     ) -> Result<(), io::Error> {
-        let req_packet = req.get_packet();
+        let req_packet = req.packet();
         let maybe_user_name_attr = rfc2865::lookup_user_name(req_packet);
         let maybe_user_password_attr = rfc2865::lookup_user_password(req_packet);
 
@@ -35,7 +35,7 @@ impl RequestHandler<(), io::Error> for MyRequestHandler {
 
         let mut resp_packet = req_packet.make_response_packet(code);
         rfc2865::add_user_name(&mut resp_packet, user_name.as_str());
-        conn.send_to(&resp_packet.encode().unwrap(), req.get_remote_addr())
+        conn.send_to(&resp_packet.encode().unwrap(), req.remote_addr())
             .await?;
         Ok(())
     }
@@ -50,9 +50,9 @@ impl RequestHandler<(), io::Error> for LongTimeTakingHandler {
         req: &Request,
     ) -> Result<(), io::Error> {
         sleep(Duration::from_secs(30)).await;
-        let req_packet = req.get_packet();
+        let req_packet = req.packet();
         let resp_packet = req_packet.make_response_packet(Code::AccessReject);
-        conn.send_to(&resp_packet.encode().unwrap(), req.get_remote_addr())
+        conn.send_to(&resp_packet.encode().unwrap(), req.remote_addr())
             .await?;
         Ok(())
     }
@@ -87,7 +87,7 @@ impl RequestHandler<(), io::Error> for VsaCaptureHandler {
         conn: &UdpSocket,
         req: &Request,
     ) -> Result<(), io::Error> {
-        let req_packet = req.get_packet();
+        let req_packet = req.packet();
 
         let user_name = rfc2865::lookup_user_name(req_packet)
             .and_then(|r| r.ok())
@@ -106,7 +106,7 @@ impl RequestHandler<(), io::Error> for VsaCaptureHandler {
         });
 
         let resp_packet = req_packet.make_response_packet(Code::AccessAccept);
-        conn.send_to(&resp_packet.encode().unwrap(), req.get_remote_addr())
+        conn.send_to(&resp_packet.encode().unwrap(), req.remote_addr())
             .await?;
         Ok(())
     }
@@ -155,7 +155,7 @@ mod tests {
         let res = client.send_packet(&remote_addr, &req_packet).await.unwrap();
         let maybe_user_name = rfc2865::lookup_user_name(&res);
         let maybe_user_pass = rfc2865::lookup_user_password(&res);
-        assert_eq!(res.get_code(), Code::AccessAccept);
+        assert_eq!(res.code(), Code::AccessAccept);
         assert!(maybe_user_name.is_some());
         assert_eq!(maybe_user_name.unwrap().unwrap(), "admin");
         assert!(maybe_user_pass.is_none());
@@ -164,7 +164,7 @@ mod tests {
         rfc2865::add_user_name(&mut req_packet, "admin");
         rfc2865::add_user_password(&mut req_packet, b"INVALID-PASS").unwrap();
         let res = client.send_packet(&remote_addr, &req_packet).await.unwrap();
-        assert_eq!(res.get_code(), Code::AccessReject);
+        assert_eq!(res.code(), Code::AccessReject);
 
         sender.send(()).unwrap();
         server_proc.await.unwrap();
@@ -241,7 +241,7 @@ mod tests {
         .await
         .unwrap();
 
-        let port = server.get_listen_address().unwrap().port();
+        let port = server.listen_address().unwrap().port();
 
         let server_proc = tokio::spawn(async move {
             server.run(receiver).await.unwrap();
