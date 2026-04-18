@@ -55,7 +55,7 @@ pub enum ClientError {
 ///
 /// ```no_run
 /// # use std::error::Error;
-/// # #[tokio::main]
+/// # #[tokio::main(flavor = "current_thread")]
 /// # async fn main() -> Result<(), Box<dyn Error>> {
 /// use std::net::SocketAddr;
 /// use std::time::Duration;
