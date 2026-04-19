@@ -12,12 +12,19 @@ Simple example implementations are here:
 
 - [server](./examples/server.rs)
 - [client](./examples/client.rs)
+- [EAP-MD5 server + client](./examples/eap_md5.rs)
 
 Those examples implement a quite simple `Access-Request` processor. You can try those with the following commands.
 
 ```
-$ RUST_LOG=debug cargo run --example server
-$ RUST_LOG=debug cargo run --example client # in another shell
+$ RUST_LOG=debug cargo run --example server --package examples
+$ RUST_LOG=debug cargo run --example client --package examples # in another shell
+```
+
+The EAP-MD5 example runs a self-contained server and built-in client in-process:
+
+```
+$ cargo run --example eap_md5 --package examples
 ```
 
 ## Supported Dictionaries
@@ -70,7 +77,7 @@ Exactly one must be active at a time.
 |---------|-------------|--------|
 | `aws-lc` | Uses [AWS-LC](https://github.com/aws/aws-lc) via `aws-lc-sys` for MD5 and random bytes | ✓ |
 | `openssl` | Uses [OpenSSL](https://www.openssl.org/) via the `openssl` crate | |
-| `md5` | Pure-Rust `md5` crate with the `rand` crate | |
+| `rust-crypto` | Pure-Rust backend using RustCrypto crates (`md-5`, `md4`, `sha1`, `hmac`, `des`) and `rand` | |
 
 To select a different backend, disable the default and enable the one you want:
 
@@ -80,7 +87,7 @@ To select a different backend, disable the default and enable the one you want:
 radius = { version = "__version__", default-features = false, features = ["openssl"] }
 
 # Pure-Rust backend
-radius = { version = "__version__", default-features = false, features = ["md5"] }
+radius = { version = "__version__", default-features = false, features = ["rust-crypto"] }
 ```
 
 ## Implementation guide for your RADIUS application
@@ -137,6 +144,47 @@ A runnable example is provided at [examples/cisco_vsa.rs](./examples/cisco_vsa.r
 ```
 $ cargo run --example cisco_vsa --package examples
 ```
+
+### EAP (Extensible Authentication Protocol)
+
+The library includes first-class support for EAP over RADIUS ([RFC 3579](https://tools.ietf.org/html/rfc3579)) via `radius::core::eap`.
+
+Key types:
+
+| Type | Description |
+|---|---|
+| `EapPacket` | Parsed EAP packet with `encode()` / `decode()` |
+| `EapCode` | `Request`, `Response`, `Success`, `Failure` |
+| `EapType` | `Identity`, `Md5Challenge`, `Tls`, `Ttls`, `Peap`, … |
+
+Key `Packet` helpers:
+
+| Method | Description |
+|---|---|
+| `packet.add_eap_message(bytes)` | Append `EAP-Message` attribute(s), chunked to 253 bytes |
+| `packet.lookup_eap_message()` | Reassemble all `EAP-Message` fragments |
+| `packet.add_message_authenticator()` | Compute and attach `Message-Authenticator` (HMAC-MD5) |
+| `Packet::verify_message_authenticator(bytes, req_auth, secret)` | Verify the MAC on raw wire bytes |
+
+A complete EAP-MD5 server + client example is provided at [examples/eap_md5.rs](./examples/eap_md5.rs):
+
+```
+$ cargo run --example eap_md5 --package examples
+```
+
+### Cryptographic primitives (`radius::core::crypto`)
+
+The backend-agnostic crypto helpers are exposed publicly so that application code can implement
+EAP methods without pulling in additional crates:
+
+| Function | Description |
+|---|---|
+| `crypto::md5(data)` | Raw MD5 digest — 16 bytes |
+| `crypto::hmac_md5(key, data)` | HMAC-MD5 keyed MAC — 16 bytes |
+| `crypto::fill_random(buf)` | Fill a `&mut [u8]` with secure random bytes |
+| `crypto::random_bytes(n)` | Allocate `n` secure random bytes |
+
+The active cryptography feature (`aws-lc`, `openssl`, or `rust-crypto`) is selected at compile time; see the [Cryptography backends](#cryptography-backends) section.
 
 ### Server
 

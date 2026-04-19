@@ -28,11 +28,11 @@ Exactly one of three mutually exclusive features must be active (enforced via `c
 
 - **`aws-lc`** (default) — uses `aws-lc-sys` FFI directly; `RAND_bytes` and `MD5` from AWS-LC.
 - **`openssl`** — uses the `openssl` and `rand` crates.
-- **`md5`** — pure-Rust `md5` crate + `rand` crate.
+- **`rust-crypto`** — pure-Rust backend using RustCrypto crates (`md-5`, `md4`, `sha1`, `hmac`, `des`) + `rand`.
 
 The unified API in `radius/src/core/crypto.rs` exposes: `md5(data) -> [u8; 16]`, `random_bytes(n) -> Vec<u8>`, `fill_random(buf: &mut [u8])`.
 
-To test all backends: `make check_all` (also `make check_openssl`, `make check_md5`).
+To test all backends: `make check_all` (also `make check_openssl`, `make check_rust_crypto`).
 
 ## Key Abstractions
 

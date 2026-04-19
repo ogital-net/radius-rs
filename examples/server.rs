@@ -47,7 +47,8 @@ impl RequestHandler<(), io::Error> for MyRequestHandler {
         let maybe_user_password_attr = rfc2865::lookup_user_password(req_packet);
 
         let user_name = maybe_user_name_attr.unwrap().unwrap();
-        let user_password = String::from_utf8(maybe_user_password_attr.unwrap().unwrap()).unwrap();
+        let user_password =
+            String::from_utf8(Vec::from(maybe_user_password_attr.unwrap().unwrap())).unwrap();
         let code = if user_name == "admin" && user_password == "p@ssw0rd" {
             Code::AccessAccept
         } else {
@@ -68,7 +69,6 @@ struct MySecretProvider {}
 
 impl SecretProvider for MySecretProvider {
     fn fetch_secret(&self, _remote_addr: SocketAddr) -> Result<Vec<u8>, SecretProviderError> {
-        let bs = b"secret".to_vec();
-        Ok(bs)
+        Ok(b"secret".to_vec())
     }
 }

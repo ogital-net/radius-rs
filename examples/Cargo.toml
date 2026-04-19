@@ -10,12 +10,12 @@ repository = "https://github.com/moznion/radius-rs"
 radius = { version = "0.4.0", path = "../radius", default-features = false }
 log = "0.4.11"
 env_logger = "0.8.2"
-tokio = { version = "1.52.1", features = ["net", "signal", "time", "macros", "rt-multi-thread"] }
+tokio = { version = "1.52.1", features = ["net", "signal", "sync", "time", "macros", "rt-multi-thread"] }
 
 [features]
 default = ["aws-lc"]
 aws-lc = ["radius/aws-lc"]
-md5 = ["radius/md5"]
+rust-crypto = ["radius/rust-crypto"]
 openssl = ["radius/openssl"]
 
 [[example]]
@@ -29,4 +29,8 @@ path = "client.rs"
 [[example]]
 name = "cisco_vsa"
 path = "cisco_vsa.rs"
+
+[[example]]
+name = "eap_md5"
+path = "eap_md5.rs"
 

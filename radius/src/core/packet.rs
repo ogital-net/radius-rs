@@ -383,6 +383,156 @@ impl Packet {
     }
 }
 
+// ── EAP helpers ──────────────────────────────────────────────────────────────
+
+/// Maximum value bytes per `EAP-Message` AVP (RFC 3579 §3.1).
+const EAP_MESSAGE_MAX_CHUNK: usize = 253;
+
+impl Packet {
+    /// Append one or more `EAP-Message` attributes (type 79) carrying `eap_data`.
+    ///
+    /// If `eap_data` exceeds 253 bytes it is split into consecutive 253-byte
+    /// chunks as required by RFC 3579 §3.1.
+    pub fn add_eap_message(&mut self, eap_data: &[u8]) {
+        for chunk in eap_data.chunks(EAP_MESSAGE_MAX_CHUNK) {
+            self.add(AVP {
+                typ: crate::core::eap::EAP_MESSAGE_TYPE,
+                value: bytes::Bytes::copy_from_slice(chunk),
+            });
+        }
+    }
+
+    /// Reassemble and return the concatenated value of all `EAP-Message`
+    /// attributes (type 79) in the packet.
+    ///
+    /// Returns `None` if no `EAP-Message` attribute is present.
+    #[must_use]
+    pub fn lookup_eap_message(&self) -> Option<Vec<u8>> {
+        let avps = self
+            .attributes
+            .lookup_all(crate::core::eap::EAP_MESSAGE_TYPE);
+        if avps.is_empty() {
+            return None;
+        }
+        let mut out: Vec<u8> = Vec::new();
+        for avp in avps {
+            out.extend_from_slice(&avp.value);
+        }
+        Some(out)
+    }
+
+    /// Compute and add (or replace) the `Message-Authenticator` attribute
+    /// (type 80, RFC 3579 §3.2).
+    ///
+    /// The MAC is HMAC-MD5 keyed with the packet's shared secret, computed
+    /// over the wire-encoded packet with the `Message-Authenticator` value
+    /// temporarily set to 16 zero bytes.
+    ///
+    /// **Call this as the last step before `encode()`**, because `encode()`
+    /// updates the packet Authenticator field which is covered by the MAC.
+    ///
+    /// For response packets created via [`Packet::make_response_packet`] the
+    /// internal `authenticator` field still holds the *request* authenticator,
+    /// which is what RFC 3579 requires for response MAC computation.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `Message-Authenticator` placeholder that was just inserted
+    /// cannot be found (should never happen).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PacketError`] if serialising the packet fails (e.g. it is
+    /// too large).
+    pub fn add_message_authenticator(&mut self) -> Result<(), PacketError> {
+        use crate::core::eap::MESSAGE_AUTHENTICATOR_TYPE;
+
+        // Replace any existing Message-Authenticator with a zeroed placeholder.
+        self.attributes.del(MESSAGE_AUTHENTICATOR_TYPE);
+        self.add(AVP {
+            typ: MESSAGE_AUTHENTICATOR_TYPE,
+            value: bytes::Bytes::copy_from_slice(&[0u8; 16]),
+        });
+
+        // Serialise the packet with the zeroed placeholder in place.
+        let wire = self.marshal_binary().map_err(PacketError::EncodingError)?;
+
+        // Compute HMAC-MD5 over the wire bytes.
+        let mac = crypto::hmac_md5(&self.secret, &wire);
+
+        // Update the placeholder in-place (it is always the last attribute we
+        // just added, so the unwrap is safe).
+        self.attributes
+            .0
+            .iter_mut()
+            .rev()
+            .find(|a| a.typ == MESSAGE_AUTHENTICATOR_TYPE)
+            .unwrap()
+            .value = bytes::Bytes::copy_from_slice(&mac);
+
+        Ok(())
+    }
+
+    /// Verify the `Message-Authenticator` attribute (type 80, RFC 3579 §3.2)
+    /// in raw RADIUS wire bytes.
+    ///
+    /// `request_authenticator` must be the 16-byte authenticator from the
+    /// *request* packet:
+    /// - When verifying a received **request** (e.g. Access-Request): pass
+    ///   `packet_bytes[4..20].try_into().unwrap()`.
+    /// - When verifying a received **response** (e.g. Access-Accept): pass
+    ///   the authenticator from the Access-Request that was sent.
+    ///
+    /// Returns `false` if no `Message-Authenticator` attribute is found, the
+    /// packet is too short, or the MAC does not match.
+    #[must_use]
+    pub fn verify_message_authenticator(
+        packet_bytes: &[u8],
+        request_authenticator: &[u8; 16],
+        secret: &[u8],
+    ) -> bool {
+        use crate::core::eap::MESSAGE_AUTHENTICATOR_TYPE;
+
+        if packet_bytes.len() < RADIUS_PACKET_HEADER_LENGTH {
+            return false;
+        }
+
+        // Scan the raw attribute list for the Message-Authenticator.
+        let mut pos = RADIUS_PACKET_HEADER_LENGTH;
+        let mut ma_value_offset: Option<usize> = None;
+        let mut saved_mac = [0u8; 16];
+
+        while pos + 2 <= packet_bytes.len() {
+            let attr_type = packet_bytes[pos];
+            let attr_len = packet_bytes[pos + 1] as usize;
+            if attr_len < 2 || pos + attr_len > packet_bytes.len() {
+                break;
+            }
+            if attr_type == MESSAGE_AUTHENTICATOR_TYPE && attr_len == 18 {
+                ma_value_offset = Some(pos + 2);
+                saved_mac.copy_from_slice(&packet_bytes[pos + 2..pos + 18]);
+                // Keep scanning — RFC 3579 says the first one is used, so we
+                // stop after finding it.
+                break;
+            }
+            pos += attr_len;
+        }
+
+        let Some(ma_offset) = ma_value_offset else {
+            return false;
+        };
+
+        // Build a modified copy: authenticator = request_authenticator,
+        // Message-Authenticator value = 16 zero bytes.
+        let mut modified = packet_bytes.to_vec();
+        modified[4..20].copy_from_slice(request_authenticator);
+        modified[ma_offset..ma_offset + 16].fill(0);
+
+        let computed = crypto::hmac_md5(secret, &modified);
+        computed == saved_mac
+    }
+}
+
 impl Debug for Packet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let hex_auth: String = {
@@ -446,8 +596,9 @@ mod tests {
         assert_eq!(
             rfc2865::lookup_user_password(&request_packet)
                 .unwrap()
-                .unwrap(),
-            b"arctangent"
+                .unwrap()
+                .as_slice(),
+            b"arctangent" as &[u8]
         );
         assert_eq!(
             rfc2865::lookup_nas_ip_address(&request_packet)
@@ -594,8 +745,11 @@ mod tests {
 
             let decoded = Packet::decode(&encoded, secret).unwrap();
             assert_eq!(
-                rfc2865::lookup_user_password(&decoded).unwrap().unwrap(),
-                password
+                rfc2865::lookup_user_password(&decoded)
+                    .unwrap()
+                    .unwrap()
+                    .as_slice(),
+                password.as_slice()
             );
         }
     }
@@ -689,8 +843,8 @@ mod tests {
         packet.extend(avps);
         let all = packet.lookup_all(1);
         assert_eq!(all.len(), 2);
-        assert_eq!(all[0].encode_bytes(), b"alice");
-        assert_eq!(all[1].encode_bytes(), b"bob");
+        assert_eq!(all[0].encode_bytes().as_ref(), b"alice" as &[u8]);
+        assert_eq!(all[1].encode_bytes().as_ref(), b"bob" as &[u8]);
     }
 
     #[test]

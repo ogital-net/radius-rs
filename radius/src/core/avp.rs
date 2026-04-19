@@ -823,8 +823,8 @@ impl AVP {
 
     /// (This method is for dictionary developers) encode an AVP into bytes.
     #[must_use]
-    pub fn encode_bytes(&self) -> Vec<u8> {
-        self.value.to_vec()
+    pub fn encode_bytes(&self) -> Box<[u8]> {
+        Box::from(self.value.as_ref())
     }
 
     /// (This method is for dictionary developers) encode an AVP into Ipv4 value.
@@ -856,9 +856,9 @@ impl AVP {
     /// # Errors
     ///
     /// Returns [`AVPError::InvalidAttributeLengthError`] if the value is not exactly 6 bytes.
-    pub fn encode_ipv4_prefix(&self) -> Result<Vec<u8>, AVPError> {
+    pub fn encode_ipv4_prefix(&self) -> Result<Box<[u8]>, AVPError> {
         if self.value.len() == 6 {
-            Ok(self.value[2..].to_vec())
+            Ok(Box::from(&self.value[2..]))
         } else {
             Err(AVPError::InvalidAttributeLengthError(
                 "6 bytes".to_owned(),
@@ -896,9 +896,9 @@ impl AVP {
     /// # Errors
     ///
     /// Returns [`AVPError::InvalidAttributeLengthError`] if the value is shorter than 2 bytes.
-    pub fn encode_ipv6_prefix(&self) -> Result<Vec<u8>, AVPError> {
+    pub fn encode_ipv6_prefix(&self) -> Result<Box<[u8]>, AVPError> {
         if self.value.len() >= 2 {
-            Ok(self.value[2..].to_vec())
+            Ok(Box::from(&self.value[2..]))
         } else {
             Err(AVPError::InvalidAttributeLengthError(
                 "2+ bytes".to_owned(),
@@ -954,7 +954,8 @@ impl AVP {
 
         // remove trailing zero bytes
         let end = memchr::memchr(0, &dec).unwrap_or(dec.len());
-        Ok(dec[..end].to_vec())
+        dec.truncate(end);
+        Ok(dec)
     }
 
     /// (This method is for dictionary developers) encode an AVP into date value.
@@ -1038,7 +1039,8 @@ impl AVP {
 
         // remove trailing zero bytes
         let end = memchr::memchr(0, &dec).unwrap_or(dec.len());
-        Ok((dec[..end].to_vec(), tag))
+        dec.truncate(end);
+        Ok((dec, tag))
     }
 }
 
@@ -1052,7 +1054,7 @@ mod tests {
 
     #[test]
     fn it_should_convert_attribute_to_integer32() -> Result<(), AVPError> {
-        let given_u32 = 16909060;
+        let given_u32 = 16_909_060;
         let avp = AVP::from_u32(1, given_u32);
         assert_eq!(avp.encode_u32()?, given_u32);
         Ok(())
@@ -1068,7 +1070,7 @@ mod tests {
 
     #[test]
     fn it_should_convert_attribute_to_tagged_integer32() -> Result<(), AVPError> {
-        let given_u32 = 16909060;
+        let given_u32 = 16_909_060;
         let avp = AVP::from_tagged_u32(1, None, given_u32);
         assert_eq!(avp.encode_tagged_u32()?, (given_u32, Tag::new_unused()));
 
@@ -1112,7 +1114,7 @@ mod tests {
     fn it_should_convert_attribute_to_byte() {
         let given_bytes = b"Hello, World";
         let avp = AVP::from_bytes(1, given_bytes);
-        assert_eq!(avp.encode_bytes(), given_bytes);
+        assert_eq!(avp.encode_bytes().as_ref(), given_bytes as &[u8]);
     }
 
     #[test]
@@ -1135,13 +1137,13 @@ mod tests {
 
     #[test]
     fn it_should_convert_user_password() {
-        let secret = b"12345".to_vec();
-        let request_authenticator = b"0123456789abcdef".to_vec();
-
         struct TestCase<'a> {
             plain_text: &'a str,
             expected_encoded_len: usize,
         }
+
+        let secret = b"12345".to_vec();
+        let request_authenticator = b"0123456789abcdef".to_vec();
 
         let test_cases = &[
             TestCase {
@@ -1184,7 +1186,7 @@ mod tests {
                 .encode_user_password(&secret, &request_authenticator)
                 .unwrap();
             assert_eq!(
-                String::from_utf8(decoded_password).unwrap(),
+                String::from_utf8(decoded_password.clone()).unwrap(),
                 test_case.plain_text
             );
         }
@@ -1205,15 +1207,15 @@ mod tests {
     }
 
     #[test]
-    fn it_should_convert_tunnel_password() -> Result<(), AVPError> {
-        let tag = Tag { value: 0x1e };
-        let secret = b"12345".to_vec();
-        let request_authenticator = b"0123456789abcdef".to_vec();
-
+    fn it_should_convert_tunnel_password() {
         struct TestCase<'a> {
             plain_text: &'a str,
             expected_encoded_len: usize,
         }
+
+        let tag = Tag { value: 0x1e };
+        let secret = b"12345".to_vec();
+        let request_authenticator = b"0123456789abcdef".to_vec();
 
         let test_cases = &[
             TestCase {
@@ -1258,19 +1260,17 @@ mod tests {
                 .unwrap();
             assert_eq!(got_tag, tag);
             assert_eq!(
-                String::from_utf8(decoded_password).unwrap(),
+                String::from_utf8(decoded_password.clone()).unwrap(),
                 test_case.plain_text
             );
         }
-
-        Ok(())
     }
 
     #[test]
     fn should_convert_ipv4_prefix() -> Result<(), AVPError> {
         let prefix = vec![0x01, 0x02, 0x03, 0x04];
         let avp = AVP::from_ipv4_prefix(1, &prefix)?;
-        assert_eq!(avp.encode_ipv4_prefix()?, prefix);
+        assert_eq!(avp.encode_ipv4_prefix()?.as_ref(), prefix.as_slice());
 
         Ok(())
     }
@@ -1304,18 +1304,18 @@ mod tests {
     fn should_convert_ipv6_prefix() -> Result<(), AVPError> {
         let prefix = vec![];
         let avp = AVP::from_ipv6_prefix(1, &prefix)?;
-        assert_eq!(avp.encode_ipv6_prefix()?, prefix);
+        assert_eq!(avp.encode_ipv6_prefix()?.as_ref(), prefix.as_slice());
 
         let prefix = vec![0x00, 0x01, 0x02, 0x03];
         let avp = AVP::from_ipv6_prefix(1, &prefix)?;
-        assert_eq!(avp.encode_ipv6_prefix()?, prefix);
+        assert_eq!(avp.encode_ipv6_prefix()?.as_ref(), prefix.as_slice());
 
         let prefix = vec![
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
             0x0e, 0x0f,
         ];
         let avp = AVP::from_ipv6_prefix(1, &prefix)?;
-        assert_eq!(avp.encode_ipv6_prefix()?, prefix);
+        assert_eq!(avp.encode_ipv6_prefix()?.as_ref(), prefix.as_slice());
 
         Ok(())
     }

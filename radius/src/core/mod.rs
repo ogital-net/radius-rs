@@ -5,7 +5,10 @@ pub mod avp;
 #[cfg(feature = "aws-lc")]
 pub(crate) mod aws_lc;
 pub mod code;
-pub(crate) mod crypto;
+pub mod crypto;
+pub mod eap;
+#[cfg(feature = "openssl")]
+pub(crate) mod openssl;
 pub mod packet;
 pub mod request;
 pub mod tag;

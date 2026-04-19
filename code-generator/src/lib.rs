@@ -834,12 +834,12 @@ pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) {{
 ///
 /// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
 #[must_use]
-pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Vec<u8>> {{
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Box<[u8]>> {{
     packet.lookup({type_identifier}).map(AVP::encode_bytes)
 }}
 /// Lookup all of the `{method_identifier}` octets value from a packet.
 #[must_use]
-pub fn lookup_all_{method_identifier}(packet: &Packet) -> Vec<Vec<u8>> {{
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Vec<Box<[u8]>> {{
     let mut vec = Vec::new();
     for avp in packet.lookup_all({type_identifier}) {{
         vec.push(avp.encode_bytes());
@@ -871,7 +871,7 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Vec<u8>> {{
         None
     }} else {{
         Some(avps.into_iter().fold(Vec::new(), |mut acc, v| {{
-            acc.extend(v.encode_bytes());
+            acc.extend_from_slice(&v.encode_bytes());
             acc
         }}))
     }}
@@ -904,12 +904,12 @@ pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), 
 ///
 /// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
 #[must_use]
-pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Vec<u8>> {{
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Box<[u8]>> {{
     packet.lookup({type_identifier}).map(AVP::encode_bytes)
 }}
 /// Lookup all of the `{method_identifier}` fixed-length octets value from a packet.
 #[must_use]
-pub fn lookup_all_{method_identifier}(packet: &Packet) -> Vec<Vec<u8>> {{
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Vec<Box<[u8]>> {{
     let mut vec = Vec::new();
     for avp in packet.lookup_all({type_identifier}) {{
         vec.push(avp.encode_bytes());
@@ -983,7 +983,7 @@ pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), 
 ///
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
-pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVPError>> {{
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Box<[u8]>, AVPError>> {{
     packet.lookup({type_identifier}).map(AVP::encode_ipv4_prefix)
 }}
 /// Lookup all of the `{method_identifier}` ipv4 prefix value from a packet.
@@ -992,7 +992,7 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVP
 ///
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
-pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Vec<u8>>, AVPError> {{
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Box<[u8]>>, AVPError> {{
     let mut vec = Vec::new();
     for avp in packet.lookup_all({type_identifier}) {{
         vec.push(avp.encode_ipv4_prefix()?);
@@ -1066,7 +1066,7 @@ pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), 
 ///
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
-pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVPError>> {{
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Box<[u8]>, AVPError>> {{
     packet.lookup({type_identifier}).map(AVP::encode_ipv6_prefix)
 }}
 /// Lookup all of the `{method_identifier}` ipv6 prefix value from a packet.
@@ -1075,7 +1075,7 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVP
 ///
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
-pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Vec<u8>>, AVPError> {{
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Box<[u8]>>, AVPError> {{
     let mut vec = Vec::new();
     for avp in packet.lookup_all({type_identifier}) {{
         vec.push(avp.encode_ipv6_prefix()?);
@@ -1446,18 +1446,18 @@ pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) {{
 ///
 /// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
 #[must_use]
-pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Vec<u8>> {{
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Box<[u8]>> {{
     packet
         .lookup_vsa({vendor_id}_u32, {type_identifier})
-        .map(|b| b.to_vec())
+        .map(|b| Box::from(b.as_ref()))
 }}
 /// Lookup all of the `{method_identifier}` octets values from a packet.
 #[must_use]
-pub fn lookup_all_{method_identifier}(packet: &Packet) -> Vec<Vec<u8>> {{
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Vec<Box<[u8]>> {{
     packet
         .lookup_all_vsa({vendor_id}_u32, {type_identifier})
         .into_iter()
-        .map(|b| b.to_vec())
+        .map(|b| Box::from(b.as_ref()))
         .collect()
 }}
 ",
@@ -1489,18 +1489,18 @@ pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), 
 ///
 /// It returns the first looked up value. If there is no associated value with `{method_identifier}`, it returns `None`.
 #[must_use]
-pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Vec<u8>> {{
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Box<[u8]>> {{
     packet
         .lookup_vsa({vendor_id}_u32, {type_identifier})
-        .map(|b| b.to_vec())
+        .map(|b| Box::from(b.as_ref()))
 }}
 /// Lookup all of the `{method_identifier}` fixed-length octets values from a packet.
 #[must_use]
-pub fn lookup_all_{method_identifier}(packet: &Packet) -> Vec<Vec<u8>> {{
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Vec<Box<[u8]>> {{
     packet
         .lookup_all_vsa({vendor_id}_u32, {type_identifier})
         .into_iter()
-        .map(|b| b.to_vec())
+        .map(|b| Box::from(b.as_ref()))
         .collect()
 }}
 ",
@@ -1575,7 +1575,7 @@ pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), 
 ///
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
-pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVPError>> {{
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Box<[u8]>, AVPError>> {{
     packet
         .lookup_vsa({vendor_id}_u32, {type_identifier})
         .map(|payload| AVP::from_bytes(0, &payload).encode_ipv4_prefix())
@@ -1586,7 +1586,7 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVP
 ///
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
-pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Vec<u8>>, AVPError> {{
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Box<[u8]>>, AVPError> {{
     let mut vec = Vec::new();
     for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
         vec.push(AVP::from_bytes(0, &payload).encode_ipv4_prefix()?);
@@ -1665,7 +1665,7 @@ pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), 
 ///
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
-pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVPError>> {{
+pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Box<[u8]>, AVPError>> {{
     packet
         .lookup_vsa({vendor_id}_u32, {type_identifier})
         .map(|payload| AVP::from_bytes(0, &payload).encode_ipv6_prefix())
@@ -1676,7 +1676,7 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVP
 ///
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
-pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Vec<u8>>, AVPError> {{
+pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Box<[u8]>>, AVPError> {{
     let mut vec = Vec::new();
     for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
         vec.push(AVP::from_bytes(0, &payload).encode_ipv6_prefix()?);

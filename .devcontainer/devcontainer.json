@@ -21,7 +21,7 @@
 	// "forwardPorts": [],
 
 	// Use 'postCreateCommand' to run commands after the container is created.
-	"postCreateCommand": "sudo apt-get update && sudo apt-get -y install freeradius"
+	"postCreateCommand": "sudo apt-get update && sudo apt-get -y install freeradius eapoltest"
 
 	// Configure tool-specific properties.
 	// "customizations": {},
