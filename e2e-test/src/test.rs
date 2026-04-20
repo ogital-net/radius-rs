@@ -13,7 +13,7 @@ use radius::core::code::Code;
 use radius::core::crypto;
 use radius::core::eap::{EapCode, EapPacket, EapType};
 use radius::core::request::Request;
-use radius::dict::{cisco, rfc2865};
+use radius::dict::{cisco, microsoft, rfc2865};
 use radius::server::{RequestHandler, SecretProvider, SecretProviderError};
 
 struct MyRequestHandler {}
@@ -451,6 +451,49 @@ impl RequestHandler<(), io::Error> for EapMsChapV2Handler {
     }
 }
 
+/// A request handler that authenticates MS-CHAPv1 (RFC 2433) requests.
+///
+/// Extracts `MS-CHAP-Challenge` (8 bytes) and `MS-CHAP-Response` (50 bytes) from
+/// the Access-Request, verifies the NT-Response field against the configured
+/// password, and replies with Access-Accept or Access-Reject accordingly.
+struct MsChapV1Handler {
+    /// The expected cleartext password verified for every request.
+    password: &'static str,
+}
+
+impl RequestHandler<(), io::Error> for MsChapV1Handler {
+    async fn handle_radius_request(
+        &self,
+        conn: &UdpSocket,
+        req: &Request,
+    ) -> Result<(), io::Error> {
+        let req_packet = req.packet();
+
+        let challenge_bytes = microsoft::lookup_ms_chap_challenge(req_packet);
+        let response_bytes = microsoft::lookup_ms_chap_response(req_packet);
+
+        let code = match (challenge_bytes, response_bytes) {
+            (Some(ch), Some(resp)) if ch.len() == 8 && resp.len() == 50 => {
+                // MS-CHAP-Response layout (RFC 2433 §5.2):
+                //   Ident(1) | Flags(1) | LM-Response(24) | NT-Response(24)
+                let challenge: [u8; 8] = ch[..8].try_into().unwrap();
+                let nt_response: [u8; 24] = resp[26..50].try_into().unwrap();
+                if crypto::verify_mschap_nt_response(&challenge, self.password, &nt_response) {
+                    Code::AccessAccept
+                } else {
+                    Code::AccessReject
+                }
+            }
+            _ => Code::AccessReject,
+        };
+
+        let resp_packet = req_packet.make_response_packet(code);
+        conn.send_to(&resp_packet.encode().unwrap(), req.remote_addr())
+            .await?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -466,7 +509,7 @@ mod tests {
     use radius::dict::rfc2865;
 
     use crate::test::{
-        CapturedVsaData, EapMd5Handler, EapMsChapV2Handler, LongTimeTakingHandler,
+        CapturedVsaData, EapMd5Handler, EapMsChapV2Handler, LongTimeTakingHandler, MsChapV1Handler,
         MyRequestHandler, MySecretProvider, VsaCaptureHandler,
     };
     use radius::server::Server;
@@ -828,6 +871,102 @@ mod tests {
             "eapol_test exited with non-zero status {};\nstdout: {}\nstderr: {}",
             output.status,
             String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
+    /// Sends a RADIUS Access-Request carrying MS-CHAPv1 attributes via `radclient`
+    /// and verifies that our server authenticates them correctly using the test
+    /// vectors from the FreeRADIUS source tree:
+    /// <https://github.com/FreeRADIUS/freeradius-server/blob/v3.2.x/src/tests/mschapv1>
+    ///
+    /// Test vector summary:
+    ///   User-Name            = "bob"
+    ///   Cleartext-Password   = "bob"
+    ///   MS-CHAP-Challenge    = 0xb9634adc358b2ab3
+    ///   MS-CHAP-Response     = 0xb901<24-byte-LM-zeros><24-byte-NT-response>
+    ///
+    /// The test is silently skipped when `radclient` is not present on `PATH`.
+    #[tokio::test]
+    async fn test_radclient_mschapv1_interop() {
+        // Skip gracefully when radclient is not installed.
+        if std::process::Command::new("radclient")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("radclient not found on PATH - skipping radclient MSCHAPv1 interop test");
+            return;
+        }
+
+        let (sender, receiver) = oneshot::channel::<()>();
+
+        let mut server = Server::listen(
+            "127.0.0.1",
+            0,
+            MsChapV1Handler { password: "bob" },
+            MySecretProvider {},
+        )
+        .await
+        .unwrap();
+
+        let port = server.listen_address().unwrap().port();
+
+        let server_proc = tokio::spawn(async move {
+            server.run(receiver).await.unwrap();
+        });
+
+        // Invoke radclient: one retry, 3-second timeout, auth command, shared secret "secret".
+        // Attributes are written to stdin; radclient reads from "-".
+        let mut child = tokio::process::Command::new("radclient")
+            .args([
+                "-r",
+                "1",
+                "-t",
+                "3",
+                "-f",
+                "-",
+                &format!("127.0.0.1:{port}"),
+                "auth",
+                "secret",
+            ])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("failed to spawn radclient");
+
+        let mut stdin = child.stdin.take().expect("failed to open radclient stdin");
+        // FreeRADIUS mschapv1 test vector:
+        //   MS-CHAP-Challenge = 0xb9634adc358b2ab3  (8 bytes)
+        //   MS-CHAP-Response  = 0xb9 01 <24 zero bytes LM-Response> <24-byte NT-Response>
+        //                     = 0xb9010000000000000000000000000000000000000000000000
+        //                         007a42408782f745ef90a86fd21b0d9294132750f4af66a419
+        tokio::io::AsyncWriteExt::write_all(
+            &mut stdin,
+            b"User-Name = \"bob\"\n\
+              MS-CHAP-Challenge = 0xb9634adc358b2ab3\n\
+              MS-CHAP-Response = 0xb9010000000000000000000000000000000000000000000000007a42408782f745ef90a86fd21b0d9294132750f4af66a419\n",
+        )
+        .await
+        .expect("failed to write to radclient stdin");
+        drop(stdin); // close stdin so radclient sees EOF
+
+        let output = child
+            .wait_with_output()
+            .await
+            .expect("failed to wait on radclient");
+
+        // Allow the server handler a moment to finish before we shut it down.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        sender.send(()).unwrap();
+        server_proc.await.unwrap();
+
+        assert!(
+            output.status.success(),
+            "radclient exited with non-zero status {}; stderr: {}",
+            output.status,
             String::from_utf8_lossy(&output.stderr),
         );
     }
