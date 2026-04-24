@@ -317,12 +317,16 @@ impl AVP {
     }
 
     /// (This method is for dictionary developers) make an AVP from a tagged u32 value.
+    ///
+    /// Per RFC 2868, tagged-integer attributes carry a **3-byte** value field (the
+    /// high byte of the `u32` is silently discarded), giving a total wire length of 6.
     #[must_use]
     pub fn from_tagged_u32(typ: AVPType, tag: Option<&Tag>, value: u32) -> Self {
         let tag_val = tag.map_or(UNUSED_TAG_VALUE, |t| t.value);
-        let mut buf = BytesMut::with_capacity(5);
+        let be = u32::to_be_bytes(value);
+        let mut buf = BytesMut::with_capacity(4);
         buf.put_u8(tag_val);
-        buf.put_slice(&u32::to_be_bytes(value));
+        buf.put_slice(&be[1..]); // RFC 2868: value is 3 bytes, not 4
         AVP {
             typ,
             value: buf.freeze(),
@@ -735,13 +739,10 @@ impl AVP {
     /// # Errors
     ///
     /// Returns [`AVPError`] if the tag byte is missing, the tag value is invalid, or the
-    /// payload is not exactly 4 bytes following the tag.
-    ///
-    /// # Panics
-    ///
-    /// Does not panic; the `unwrap()` is unreachable because the length is validated above.
+    /// payload is not exactly 3 bytes following the tag.
     pub fn encode_tagged_u32(&self) -> Result<(u32, Tag), AVPError> {
-        const U32_SIZE: usize = std::mem::size_of::<u32>();
+        // RFC 2868: tagged-integer value field is 3 bytes (total AVP payload = 4 bytes)
+        const VALUE_SIZE: usize = 3;
         if self.value.is_empty() {
             return Err(AVPError::TagMissingError());
         }
@@ -757,16 +758,14 @@ impl AVP {
             return Err(AVPError::InvalidTagForIntegerValueError());
         }
 
-        if self.value[1..].len() != U32_SIZE {
+        if self.value[1..].len() != VALUE_SIZE {
             return Err(AVPError::InvalidAttributeLengthError(
-                format!("{} bytes", U32_SIZE + 1),
+                format!("{} bytes", VALUE_SIZE + 1),
                 self.value.len(),
             ));
         }
-        let (int_bytes, _) = self.value[1..].split_at(U32_SIZE);
-        // SAFETY: length was validated above; try_into cannot fail here.
-        let array: [u8; U32_SIZE] = int_bytes.try_into().unwrap();
-        Ok((u32::from_be_bytes(array), tag))
+        let v = u32::from_be_bytes([0, self.value[1], self.value[2], self.value[3]]);
+        Ok((v, tag))
     }
 
     /// (This method is for dictionary developers) encode an AVP into a string value.
@@ -1070,13 +1069,21 @@ mod tests {
 
     #[test]
     fn it_should_convert_attribute_to_tagged_integer32() -> Result<(), AVPError> {
-        let given_u32 = 16_909_060;
+        // RFC 2868 tagged integers are 3-byte values; use a value that fits (≤ 0xFFFFFF).
+        // 13 = VLAN (matches the FreeRADIUS Tunnel-Type example).
+        let given_u32 = 13u32;
         let avp = AVP::from_tagged_u32(1, None, given_u32);
+        assert_eq!(avp.value.len(), 4); // tag(1) + value(3)
         assert_eq!(avp.encode_tagged_u32()?, (given_u32, Tag::new_unused()));
 
         let tag = Tag::new(2);
         let avp = AVP::from_tagged_u32(1, Some(&tag), given_u32);
         assert_eq!(avp.encode_tagged_u32()?, (given_u32, tag));
+
+        // Verify exact wire bytes match FreeRADIUS output for Tunnel-Type VLAN(13) Tag=0x00:
+        // AVP value field (excluding RADIUS type/length bytes): 0x00, 0x00, 0x00, 0x0d
+        let avp_vlan = AVP::from_tagged_u32(64, None, 13);
+        assert_eq!(&avp_vlan.value[..], &[0x00, 0x00, 0x00, 0x0d]);
         Ok(())
     }
 
@@ -1386,14 +1393,14 @@ mod tests {
 
     #[test]
     fn encode_tagged_u32_should_fail_on_wrong_payload_size() {
-        // Valid tag 0x01 but only 3 bytes of payload instead of 4
+        // Valid tag 0x01 but only 2 bytes of payload instead of 3 (RFC 2868 requires 3)
         let avp = AVP {
             typ: 1,
-            value: bytes::Bytes::from_static(b"\x01\x00\x00\x01"),
+            value: bytes::Bytes::from_static(b"\x01\x00\x01"),
         };
         assert_eq!(
             avp.encode_tagged_u32().unwrap_err(),
-            AVPError::InvalidAttributeLengthError("5 bytes".to_owned(), 4)
+            AVPError::InvalidAttributeLengthError("4 bytes".to_owned(), 3)
         );
     }
 
