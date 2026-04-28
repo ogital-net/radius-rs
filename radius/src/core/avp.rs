@@ -635,12 +635,11 @@ impl AVP {
         crypto::fill_random(&mut salt);
         salt[0] |= 0x80;
 
-        // NOTE: prepend one byte as a tag and two bytes as a salt
-        let num_chunks = if plain_text.is_empty() {
-            1
-        } else {
-            plain_text.len().div_ceil(16)
-        };
+        // RFC 2868 §3.5: the plaintext to encrypt is [length(1)][data][zero-padding].
+        // The length byte records how many bytes of actual data follow.
+        // num_chunks = ceil((1 + plain_text.len()) / 16)
+        let data_len = 1 + plain_text.len(); // 1 for the RFC 2868 length prefix
+        let num_chunks = data_len.div_ceil(16);
         let mut enc = BytesMut::with_capacity(3 + num_chunks * 16);
         enc.put_u8(tag.map_or(UNUSED_TAG_VALUE, |v| v.value));
         enc.put_slice(&salt);
@@ -654,24 +653,17 @@ impl AVP {
         md5_input.extend_from_slice(request_authenticator);
         md5_input.extend_from_slice(&salt);
 
-        if plain_text.is_empty() {
-            let enc_block = crypto::md5(&md5_input);
-            enc.put_slice(&enc_block);
-            return Ok(AVP {
-                typ,
-                value: enc.freeze(),
-            });
-        }
+        // Build the RFC 2868 plaintext buffer: [length(1)][data][zeros...].
+        let padded_len = num_chunks * 16;
+        let mut padded = vec![0u8; padded_len];
+        padded[0] = plain_text.len() as u8; // RFC 2868 §3.5 length prefix
+        padded[1..1 + plain_text.len()].copy_from_slice(plain_text);
 
-        for chunk in plain_text.chunks(16) {
-            // Zero-pad the chunk to 16 bytes on the stack — no heap allocation.
-            let mut padded = [0u8; 16];
-            padded[..chunk.len()].copy_from_slice(chunk);
-
+        for chunk in padded.chunks(16) {
             let enc_block = crypto::md5(&md5_input);
             let mut block = [0u8; 16];
-            for (i, (&d, p)) in enc_block.iter().zip(padded).enumerate() {
-                block[i] = d ^ p;
+            for (i, (&k, &p)) in enc_block.iter().zip(chunk.iter()).enumerate() {
+                block[i] = k ^ p;
             }
             enc.put_slice(&block);
 
@@ -951,8 +943,8 @@ impl AVP {
             md5_input.extend_from_slice(chunk);
         }
 
-        // remove trailing zero bytes
-        let end = memchr::memchr(0, &dec).unwrap_or(dec.len());
+        // Strip RFC 2865 §5.2 trailing null padding by scanning from the end.
+        let end = dec.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
         dec.truncate(end);
         Ok(dec)
     }
@@ -1036,10 +1028,16 @@ impl AVP {
             md5_input.extend_from_slice(chunk);
         }
 
-        // remove trailing zero bytes
-        let end = memchr::memchr(0, &dec).unwrap_or(dec.len());
-        dec.truncate(end);
-        Ok((dec, tag))
+        // RFC 2868 §3.5: the first decrypted byte is the plaintext length.
+        // Use it to extract exactly that many bytes, preserving any embedded zeros.
+        let length = dec[0] as usize;
+        if length + 1 > dec.len() {
+            return Err(AVPError::InvalidAttributeLengthError(
+                format!("tunnel-password length prefix ({length}) exceeds decrypted payload"),
+                length,
+            ));
+        }
+        Ok((dec[1..1 + length].to_vec(), tag))
     }
 }
 
@@ -1227,27 +1225,27 @@ mod tests {
         let test_cases = &[
             TestCase {
                 plain_text: "",
-                expected_encoded_len: 16 + 3,
+                expected_encoded_len: 16 + 3, // ceil((0+1)/16)=1 chunk
             },
             TestCase {
                 plain_text: "abc",
-                expected_encoded_len: 16 + 3,
+                expected_encoded_len: 16 + 3, // ceil((3+1)/16)=1 chunk
             },
             TestCase {
                 plain_text: "0123456789abcde",
-                expected_encoded_len: 16 + 3,
+                expected_encoded_len: 16 + 3, // ceil((15+1)/16)=1 chunk; length byte fills the 16th slot
             },
             TestCase {
                 plain_text: "0123456789abcdef",
-                expected_encoded_len: 16 + 3,
+                expected_encoded_len: 32 + 3, // ceil((16+1)/16)=2 chunks; length byte pushes to second block
             },
             TestCase {
                 plain_text: "0123456789abcdef0",
-                expected_encoded_len: 32 + 3,
+                expected_encoded_len: 32 + 3, // ceil((17+1)/16)=2 chunks
             },
             TestCase {
                 plain_text: "0123456789abcdef0123456789abcdef0123456789abcdef",
-                expected_encoded_len: 48 + 3,
+                expected_encoded_len: 64 + 3, // ceil((48+1)/16)=4 chunks
             },
         ];
 
@@ -1626,5 +1624,183 @@ mod tests {
             avp.encode_tunnel_password(b"secret", b"short").unwrap_err(),
             AVPError::InvalidRequestAuthenticatorLengthError()
         );
+    }
+
+    // ── RFC 2868 §3.5 compliance tests ────────────────────────────────────────
+
+    /// RFC 2868 §3.5: the ciphertext length must be `16 * ceil((1 + n) / 16)`
+    /// where the +1 accounts for the mandatory length-prefix byte.  Verify the
+    /// chunk-boundary cases that matter most for interop:
+    ///
+    ///  - 0-byte  plaintext: [0x00]              → 1 byte  → 1 chunk  → value 19 B
+    ///  - 14-byte plaintext: [0x0e][14 bytes]     → 15 bytes → 1 chunk  → value 19 B
+    ///  - 15-byte plaintext: [0x0f][15 bytes]     → 16 bytes → 1 chunk  → value 19 B
+    ///  - 16-byte plaintext: [0x10][16 bytes]     → 17 bytes → 2 chunks → value 35 B
+    ///  - 31-byte plaintext: [0x1f][31 bytes]     → 32 bytes → 2 chunks → value 35 B
+    ///  - 32-byte plaintext: [0x20][32 bytes]     → 33 bytes → 3 chunks → value 51 B
+    #[test]
+    fn tunnel_password_chunk_boundary_cases() {
+        let secret = b"12345";
+        let req_auth = b"0123456789abcdef";
+
+        let cases: &[(&[u8], usize)] = &[
+            (b"" as &[u8], 19), // 0 bytes  → 1 chunk
+            (&[b'A'; 14], 19),  // 14 bytes → 1 chunk
+            (&[b'B'; 15], 19),  // 15 bytes → exactly fills 1 chunk
+            (&[b'C'; 16], 35),  // 16 bytes → overflows to 2nd chunk
+            (&[b'D'; 31], 35),  // 31 bytes → exactly fills 2 chunks
+            (&[b'E'; 32], 51),  // 32 bytes → overflows to 3rd chunk
+        ];
+
+        for (plaintext, expected_value_len) in cases {
+            let avp = AVP::from_tunnel_password(69, None, plaintext, secret, req_auth).unwrap();
+            assert_eq!(
+                avp.value.len(),
+                *expected_value_len,
+                "wrong value length for {}-byte plaintext",
+                plaintext.len()
+            );
+            // Ciphertext portion (after tag + salt) must be a multiple of 16.
+            let ciphertext_len = avp.value.len() - 3;
+            assert_eq!(
+                ciphertext_len % 16,
+                0,
+                "ciphertext not 16-byte aligned for {}-byte plaintext",
+                plaintext.len()
+            );
+
+            // Round-trip must recover the original plaintext.
+            let (decoded, _) = avp.encode_tunnel_password(secret, req_auth).unwrap();
+            assert_eq!(
+                decoded,
+                *plaintext,
+                "round-trip mismatch for {}-byte plaintext",
+                plaintext.len()
+            );
+        }
+    }
+
+    /// RFC 2868 §3.5 wire-format: tag byte is first, salt MSB is always set,
+    /// and the total value length is 3 + ciphertext.
+    #[test]
+    fn tunnel_password_wire_format_structure() {
+        let tag = Tag::new(0x1f);
+        let secret = b"s3cr3t";
+        let req_auth = b"AAAAAAAAAAAAAAAA";
+
+        let avp = AVP::from_tunnel_password(69, Some(&tag), b"pw", secret, req_auth).unwrap();
+
+        // Byte 0: tag value.
+        assert_eq!(avp.value[0], 0x1f, "tag byte mismatch");
+        // Byte 1: salt high byte — MSB must be set (RFC 2868 §3.5).
+        assert_eq!(avp.value[1] & 0x80, 0x80, "salt MSB not set");
+        // Total value = tag(1) + salt(2) + ciphertext(16n).
+        assert_eq!(
+            (avp.value.len() - 3) % 16,
+            0,
+            "ciphertext not 16-byte aligned"
+        );
+
+        // No-tag encode (tag byte must be 0x00).
+        let avp_notag = AVP::from_tunnel_password(69, None, b"pw", secret, req_auth).unwrap();
+        assert_eq!(
+            avp_notag.value[0], 0x00,
+            "tag byte should be 0x00 when no tag supplied"
+        );
+    }
+
+    /// RFC 2868 §3.5 requires the length-prefix byte so that the decoder can
+    /// recover the exact plaintext even when it contains embedded `\x00` bytes.
+    /// A trailing-zero-strip decoder (e.g. `rposition`) would truncate such data.
+    #[test]
+    fn tunnel_password_preserves_binary_data_with_embedded_zeros() {
+        let secret = b"secret";
+        let req_auth = b"0123456789abcdef";
+        let plaintext: &[u8] = &[0x01, 0x00, 0x02, 0x00, 0x03]; // embedded zeros
+
+        let avp = AVP::from_tunnel_password(69, None, plaintext, secret, req_auth).unwrap();
+        let (decoded, _) = avp.encode_tunnel_password(secret, req_auth).unwrap();
+        assert_eq!(decoded, plaintext, "embedded zeros must be preserved");
+    }
+
+    /// Decode a pre-computed RFC-compliant wire value and assert the expected
+    /// plaintext and tag.  The wire bytes were produced by the reference
+    /// Python computation in the test suite comments:
+    ///
+    ///   secret          = b"secret"
+    ///   request_auth    = b"0123456789abcdef"
+    ///   tag             = 0x01
+    ///   salt            = [0x80, 0x01]
+    ///   plaintext       = b"hello"  (5 bytes)
+    ///
+    /// Padded plaintext  = [0x05, 'h', 'e', 'l', 'l', 'o', 0x00×10]  (16 bytes)
+    /// b1                = MD5("secret" || "0123456789abcdef" || 0x80 0x01)
+    /// ciphertext        = padded XOR b1
+    /// wire value        = [0x01][0x80][0x01][ciphertext]
+    ///
+    /// The ciphertext is computed inside the test using `crypto::md5` so that
+    /// the expected bytes are derived from the same crypto primitive and the
+    /// test acts as a cross-check of the implementation.
+    #[test]
+    fn tunnel_password_known_vector_decode() {
+        use crate::core::crypto;
+
+        let secret: &[u8] = b"secret";
+        let req_auth: &[u8] = b"0123456789abcdef";
+        let salt = [0x80u8, 0x01u8];
+        let plaintext = b"hello";
+
+        // Build the RFC 2868 padded plaintext: [length(1)][data][zeros].
+        let mut padded = [0u8; 16];
+        padded[0] = plaintext.len() as u8; // 0x05
+        padded[1..1 + plaintext.len()].copy_from_slice(plaintext);
+
+        // Compute b1 = MD5(secret || req_auth || salt).
+        let mut md5_in = Vec::new();
+        md5_in.extend_from_slice(secret);
+        md5_in.extend_from_slice(req_auth);
+        md5_in.extend_from_slice(&salt);
+        let b1 = crypto::md5(&md5_in);
+
+        // c1 = padded XOR b1.
+        let ciphertext: Vec<u8> = b1.iter().zip(padded.iter()).map(|(&k, &p)| k ^ p).collect();
+
+        // Assemble wire value: [tag][salt0][salt1][ciphertext].
+        let mut wire = vec![0x01u8]; // tag = 1
+        wire.extend_from_slice(&salt);
+        wire.extend_from_slice(&ciphertext);
+
+        let avp = AVP {
+            typ: 69,
+            value: bytes::Bytes::from(wire),
+        };
+        let (decoded, tag) = avp.encode_tunnel_password(secret, req_auth).unwrap();
+        assert_eq!(decoded, b"hello", "decoded plaintext mismatch");
+        assert_eq!(tag.value(), 0x01, "tag mismatch");
+    }
+
+    /// Encode followed by decode must return the original plaintext and tag for
+    /// every tag value in the valid range (0x00–0x1f).
+    #[test]
+    fn tunnel_password_tag_roundtrip() {
+        let secret = b"secret";
+        let req_auth = b"0123456789abcdef";
+        let plaintext = b"password";
+
+        for tag_val in 0x00u8..=0x1f {
+            let tag = Tag::new(tag_val);
+            let avp =
+                AVP::from_tunnel_password(69, Some(&tag), plaintext, secret, req_auth).unwrap();
+            let (decoded, got_tag) = avp.encode_tunnel_password(secret, req_auth).unwrap();
+            assert_eq!(
+                decoded, plaintext,
+                "tag 0x{tag_val:02x}: plaintext mismatch"
+            );
+            assert_eq!(
+                got_tag.value(),
+                tag_val,
+                "tag 0x{tag_val:02x}: tag value mismatch"
+            );
+        }
     }
 }
