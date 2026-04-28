@@ -683,22 +683,11 @@ impl AVP {
     /// # Errors
     ///
     /// Returns [`AVPError::InvalidAttributeLengthError`] if the value is not exactly 4 bytes.
-    ///
-    /// # Panics
-    ///
-    /// Does not panic; the `unwrap()` is unreachable because the length is validated above.
     pub fn encode_u32(&self) -> Result<u32, AVPError> {
         const U32_SIZE: usize = std::mem::size_of::<u32>();
-        if self.value.len() != U32_SIZE {
-            return Err(AVPError::InvalidAttributeLengthError(
-                format!("{U32_SIZE} bytes"),
-                self.value.len(),
-            ));
-        }
-
-        let (int_bytes, _) = self.value.split_at(U32_SIZE);
-        // SAFETY: length was validated above; try_into cannot fail here.
-        let array: [u8; U32_SIZE] = int_bytes.try_into().unwrap();
+        let array: [u8; U32_SIZE] = self.value[..].try_into().map_err(|_| {
+            AVPError::InvalidAttributeLengthError(format!("{U32_SIZE} bytes"), self.value.len())
+        })?;
         Ok(u32::from_be_bytes(array))
     }
 
@@ -707,22 +696,11 @@ impl AVP {
     /// # Errors
     ///
     /// Returns [`AVPError::InvalidAttributeLengthError`] if the value is not exactly 2 bytes.
-    ///
-    /// # Panics
-    ///
-    /// Does not panic; the `unwrap()` is unreachable because the length is validated above.
     pub fn encode_u16(&self) -> Result<u16, AVPError> {
         const U16_SIZE: usize = std::mem::size_of::<u16>();
-        if self.value.len() != U16_SIZE {
-            return Err(AVPError::InvalidAttributeLengthError(
-                format!("{U16_SIZE} bytes"),
-                self.value.len(),
-            ));
-        }
-
-        let (int_bytes, _) = self.value.split_at(U16_SIZE);
-        // SAFETY: length was validated above; try_into cannot fail here.
-        let array: [u8; U16_SIZE] = int_bytes.try_into().unwrap();
+        let array: [u8; U16_SIZE] = self.value[..].try_into().map_err(|_| {
+            AVPError::InvalidAttributeLengthError(format!("{U16_SIZE} bytes"), self.value.len())
+        })?;
         Ok(u16::from_be_bytes(array))
     }
 
@@ -823,22 +801,11 @@ impl AVP {
     /// # Errors
     ///
     /// Returns [`AVPError::InvalidAttributeLengthError`] if the value is not exactly 4 bytes.
-    ///
-    /// # Panics
-    ///
-    /// Does not panic; the `unwrap()` is unreachable because the length is validated above.
     pub fn encode_ipv4(&self) -> Result<Ipv4Addr, AVPError> {
         const IPV4_SIZE: usize = std::mem::size_of::<Ipv4Addr>();
-        if self.value.len() != IPV4_SIZE {
-            return Err(AVPError::InvalidAttributeLengthError(
-                format!("{IPV4_SIZE} bytes"),
-                self.value.len(),
-            ));
-        }
-
-        let (int_bytes, _) = self.value.split_at(IPV4_SIZE);
-        // SAFETY: length was validated above; try_into cannot fail here.
-        let array: [u8; IPV4_SIZE] = int_bytes.try_into().unwrap();
+        let array: [u8; IPV4_SIZE] = self.value[..].try_into().map_err(|_| {
+            AVPError::InvalidAttributeLengthError(format!("{IPV4_SIZE} bytes"), self.value.len())
+        })?;
         Ok(Ipv4Addr::from(array))
     }
 
@@ -863,22 +830,11 @@ impl AVP {
     /// # Errors
     ///
     /// Returns [`AVPError::InvalidAttributeLengthError`] if the value is not exactly 16 bytes.
-    ///
-    /// # Panics
-    ///
-    /// Does not panic; the `unwrap()` is unreachable because the length is validated above.
     pub fn encode_ipv6(&self) -> Result<Ipv6Addr, AVPError> {
         const IPV6_SIZE: usize = std::mem::size_of::<Ipv6Addr>();
-        if self.value.len() != IPV6_SIZE {
-            return Err(AVPError::InvalidAttributeLengthError(
-                format!("{IPV6_SIZE} bytes"),
-                self.value.len(),
-            ));
-        }
-
-        let (int_bytes, _) = self.value.split_at(IPV6_SIZE);
-        // SAFETY: length was validated above; try_into cannot fail here.
-        let array: [u8; IPV6_SIZE] = int_bytes.try_into().unwrap();
+        let array: [u8; IPV6_SIZE] = self.value[..].try_into().map_err(|_| {
+            AVPError::InvalidAttributeLengthError(format!("{IPV6_SIZE} bytes"), self.value.len())
+        })?;
         Ok(Ipv6Addr::from(array))
     }
 
@@ -954,22 +910,11 @@ impl AVP {
     /// # Errors
     ///
     /// Returns [`AVPError::InvalidAttributeLengthError`] if the value is not exactly 4 bytes.
-    ///
-    /// # Panics
-    ///
-    /// Does not panic; the `unwrap()` is unreachable because the length is validated above.
     pub fn encode_date(&self) -> Result<SystemTime, AVPError> {
         const U32_SIZE: usize = std::mem::size_of::<u32>();
-        if self.value.len() != U32_SIZE {
-            return Err(AVPError::InvalidAttributeLengthError(
-                format!("{U32_SIZE}"),
-                self.value.len(),
-            ));
-        }
-
-        let (int_bytes, _) = self.value.split_at(U32_SIZE);
-        // SAFETY: length was validated above; try_into cannot fail here.
-        let array: [u8; U32_SIZE] = int_bytes.try_into().unwrap();
+        let array: [u8; U32_SIZE] = self.value[..].try_into().map_err(|_| {
+            AVPError::InvalidAttributeLengthError(format!("{U32_SIZE}"), self.value.len())
+        })?;
         let timestamp = u32::from_be_bytes(array);
         Ok(UNIX_EPOCH + Duration::from_secs(u64::from(timestamp)))
     }
