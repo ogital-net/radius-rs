@@ -1,21 +1,6 @@
 /// Safe wrapper functions around aws-lc-sys crypto primitives.
 ///
 /// This module is only available when the `aws-lc` feature is enabled.
-/// Compute the MD5 hash of `data`, returning a 16-byte digest.
-///
-/// # Safety
-/// The underlying `aws_lc_sys::MD5` function is infallible for any input
-/// length, so this wrapper is unconditionally safe to call.
-pub fn md5(data: &[u8]) -> [u8; 16] {
-    let mut digest = [0u8; 16];
-    // SAFETY: `data` is a valid slice, `digest` has exactly 16 bytes as
-    // required by MD5_DIGEST_LENGTH in AWS-LC.
-    unsafe {
-        aws_lc_sys::MD5(data.as_ptr(), data.len(), digest.as_mut_ptr());
-    }
-    digest
-}
-
 /// Fill `buf` with cryptographically secure random bytes using AWS-LC's
 /// `RAND_bytes`.
 ///
@@ -54,32 +39,6 @@ pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     // SAFETY: a and b are valid slices of the same (non-zero) length.
     let ret = unsafe { aws_lc_sys::CRYPTO_memcmp(a.as_ptr().cast(), b.as_ptr().cast(), a.len()) };
     ret == 0
-}
-
-/// Compute HMAC-MD5 over `data` keyed with `key`, returning a 16-byte MAC.
-///
-/// Uses the AWS-LC one-shot `HMAC` function with `EVP_md5()`.
-///
-/// # Panics
-/// Panics if the underlying call fails (should not happen with valid inputs).
-pub fn hmac_md5(key: &[u8], data: &[u8]) -> [u8; 16] {
-    let mut out = [0u8; 16];
-    let mut out_len: std::ffi::c_uint = 16;
-    // SAFETY: key and data are valid slices; out has exactly 16 bytes (MD5_DIGEST_LENGTH).
-    let ret = unsafe {
-        aws_lc_sys::HMAC(
-            aws_lc_sys::EVP_md5(),
-            key.as_ptr().cast(),
-            key.len(),
-            data.as_ptr(),
-            data.len(),
-            out.as_mut_ptr(),
-            &mut out_len,
-        )
-    };
-    assert!(!ret.is_null(), "aws-lc HMAC failed");
-    debug_assert_eq!(out_len, 16);
-    out
 }
 
 /// Compute the MD4 digest of `data`, returning a 16-byte result.

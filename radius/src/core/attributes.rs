@@ -22,12 +22,7 @@ impl Attributes {
             }
 
             attrs.push(AVP {
-                typ: bs[i],
-                value: if length > 2 {
-                    bs.slice(i + 2..i + length)
-                } else {
-                    Bytes::new()
-                },
+                raw: bs.slice(i..i + length),
             });
 
             i += length;
@@ -45,37 +40,30 @@ impl Attributes {
     }
 
     pub(crate) fn del(&mut self, typ: AVPType) {
-        self.0.retain(|avp| avp.typ != typ);
+        self.0.retain(|avp| avp.typ() != typ);
     }
 
     pub(crate) fn del_vsa(&mut self, vendor_id: u32, vendor_type: u8) {
         self.0.retain(|avp| {
-            avp.typ != VENDOR_SPECIFIC_TYPE || avp.decode_vsa(vendor_id, vendor_type).is_none()
+            avp.typ() != VENDOR_SPECIFIC_TYPE || avp.decode_vsa(vendor_id, vendor_type).is_none()
         });
     }
 
     pub(crate) fn lookup(&self, typ: AVPType) -> Option<&AVP> {
-        self.0.iter().find(|avp| avp.typ == typ)
+        self.0.iter().find(|avp| avp.typ() == typ)
     }
 
     pub(crate) fn lookup_all(&self, typ: AVPType) -> Vec<&AVP> {
-        self.0.iter().filter(|&avp| avp.typ == typ).collect()
+        self.0.iter().filter(|&avp| avp.typ() == typ).collect()
     }
 
-    pub(crate) fn encode(&self) -> Result<Vec<u8>, String> {
-        let capacity: usize = self.0.iter().map(|avp| 2 + avp.value.len()).sum();
-        let mut encoded: Vec<u8> = Vec::with_capacity(capacity);
+    pub(crate) fn total_size(&self) -> usize {
+        self.0.iter().map(|avp| avp.raw.len()).sum()
+    }
 
+    pub(crate) fn encode(&self, dst: &mut Vec<u8>) {
         for avp in &self.0 {
-            let attr_len = avp.value.len();
-            if attr_len > 253 {
-                return Err("attribute is too large".to_owned());
-            }
-            encoded.push(avp.typ);
-            encoded.push(2 + u8::try_from(attr_len).unwrap());
-            encoded.extend_from_slice(&avp.value);
+            dst.extend_from_slice(&avp.raw);
         }
-
-        Ok(encoded)
     }
 }

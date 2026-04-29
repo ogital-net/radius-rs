@@ -19,5 +19,5 @@ async fn main() {
 
     let client = Client::new(Some(Duration::from_secs(3)), Some(Duration::from_secs(5)));
     let res = client.send_packet(&remote_addr, &req_packet).await;
-    info!("response: {:?}", res);
+    info!("response: {res:?}");
 }

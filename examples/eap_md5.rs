@@ -62,12 +62,9 @@ impl RequestHandler<(), io::Error> for EapMd5Handler {
     ) -> Result<(), io::Error> {
         let req_packet = req.packet();
 
-        let eap_bytes = match req_packet.lookup_eap_message() {
-            Some(b) => b,
-            None => {
-                eprintln!("[server] packet has no EAP-Message - ignoring");
-                return Ok(());
-            }
+        let Some(eap_bytes) = req_packet.lookup_eap_message() else {
+            eprintln!("[server] packet has no EAP-Message - ignoring");
+            return Ok(());
         };
 
         let eap_pkt = match EapPacket::decode(&eap_bytes) {
@@ -120,20 +117,15 @@ impl RequestHandler<(), io::Error> for EapMd5Handler {
 
             // ── Round 2: verify the MD5 response ─────────────────────────────
             (EapCode::Response, Some(EapType::Md5Challenge)) => {
-                let state_token = match rfc2865::lookup_state(req_packet) {
-                    Some(s) => s,
-                    None => {
-                        eprintln!("[server] no State attribute – dropping");
-                        return Ok(());
-                    }
+                let Some(state_token) = rfc2865::lookup_state(req_packet) else {
+                    eprintln!("[server] no State attribute \u{2013} dropping");
+                    return Ok(());
                 };
 
-                let challenge = match self.sessions.lock().unwrap().remove(state_token.as_ref()) {
-                    Some(c) => c,
-                    None => {
-                        eprintln!("[server] unknown State token – dropping");
-                        return Ok(());
-                    }
+                let Some(challenge) = self.sessions.lock().unwrap().remove(state_token.as_ref())
+                else {
+                    eprintln!("[server] unknown State token \u{2013} dropping");
+                    return Ok(());
                 };
 
                 // type-data: [ value_size(1) | md5_value(value_size) | identity... ]
@@ -145,7 +137,7 @@ impl RequestHandler<(), io::Error> for EapMd5Handler {
                 if type_data.len() < 1 + value_size {
                     return Ok(());
                 }
-                let md5_response = &type_data[1..1 + value_size];
+                let md5_response = &type_data[1..=value_size];
 
                 // RFC 3748 §5.4: expected = MD5(identifier || password || challenge)
                 let mut preimage = Vec::with_capacity(1 + PASSWORD.len() + challenge.len());
@@ -243,7 +235,7 @@ async fn run_eap_md5_client(server_addr: SocketAddr) -> bool {
     // type-data: [ value_size(1) | challenge(value_size) ]
     let type_data = server_eap.type_data();
     let value_size = type_data[0] as usize;
-    let challenge = &type_data[1..1 + value_size];
+    let challenge = &type_data[1..=value_size];
 
     let state = rfc2865::lookup_state(&challenge_pkt).expect("no State in Access-Challenge");
 

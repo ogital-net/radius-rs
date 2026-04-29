@@ -664,7 +664,8 @@ fn generate_string_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` string value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &str) {{
-    packet.add(AVP::from_string({type_identifier}, value));
+    let avp = AVP::from_string_in(packet.avp_buf(), {type_identifier}, value);
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` string value from a packet.
 ///
@@ -684,8 +685,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<String, AVPE
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<String>, AVPError> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_string()?);
     }}
     Ok(vec)
@@ -703,7 +705,8 @@ fn generate_tagged_string_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` tagged string value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, tag: Option<&Tag>, value: &str) {{
-    packet.add(AVP::from_tagged_string({type_identifier}, tag, value));
+    let avp = AVP::from_tagged_string_in(packet.avp_buf(), {type_identifier}, tag, value);
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` tagged string value from a packet.
 ///
@@ -723,8 +726,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<(String, Opt
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<(String, Option<Tag>)>, AVPError> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_tagged_string()?);
     }}
     Ok(vec)
@@ -746,7 +750,10 @@ fn generate_user_password_attribute_code(
 ///
 /// Returns an `AVPError` if encoding the user-password value fails.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), AVPError> {{
-    packet.add(AVP::from_user_password({type_identifier}, value, packet.secret(), packet.authenticator())?);
+    let secret = packet.secret().to_owned();
+    let authenticator = packet.authenticator().to_owned();
+    let avp = AVP::from_user_password_in(packet.avp_buf(), {type_identifier}, value, &secret, &authenticator)?;
+    packet.add(avp);
     Ok(())
 }}
 /// Lookup a `{method_identifier}` user-password value from a packet.
@@ -767,8 +774,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVP
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Vec<u8>>, AVPError> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_user_password(packet.secret(), packet.authenticator())?);
     }}
     Ok(vec)
@@ -789,7 +797,10 @@ fn generate_tunnel_password_attribute_code(
 ///
 /// Returns an `AVPError` if encoding the tunnel-password value fails.
 pub fn add_{method_identifier}(packet: &mut Packet, tag: Option<&Tag>, value: &[u8]) -> Result<(), AVPError> {{
-    packet.add(AVP::from_tunnel_password({type_identifier}, tag, value, packet.secret(), packet.authenticator())?);
+    let secret = packet.secret().to_owned();
+    let authenticator = packet.authenticator().to_owned();
+    let avp = AVP::from_tunnel_password_in(packet.avp_buf(), {type_identifier}, tag, value, &secret, &authenticator)?;
+    packet.add(avp);
     Ok(())
 }}
 /// Lookup a `{method_identifier}` tunnel-password value from a packet.
@@ -810,8 +821,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<(Vec<u8>, Ta
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<(Vec<u8>, Tag)>, AVPError> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_tunnel_password(packet.secret(), packet.authenticator())?);
     }}
     Ok(vec)
@@ -828,7 +840,8 @@ fn generate_octets_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` octets value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) {{
-    packet.add(AVP::from_bytes({type_identifier}, value));
+    let avp = AVP::from_bytes_in(packet.avp_buf(), {type_identifier}, value);
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` octets value from a packet.
 ///
@@ -840,8 +853,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Box<[u8]>> {{
 /// Lookup all of the `{method_identifier}` octets value from a packet.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Vec<Box<[u8]>> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_bytes());
     }}
     vec
@@ -857,12 +871,10 @@ fn generate_concat_octets_attribute_code(
 ) {
     let code = format!(
         "pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) {{
-    packet.extend(
-        value
-            .chunks(253)
-            .map(|chunk| AVP::from_bytes({type_identifier}, chunk))
-            .collect(),
-    );
+    for chunk in value.chunks(253) {{
+        let avp = AVP::from_bytes_in(packet.avp_buf(), {type_identifier}, chunk);
+        packet.add(avp);
+    }}
 }}
 #[must_use]
 pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Vec<u8>> {{
@@ -897,7 +909,8 @@ pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), 
     if value.len() != {fixed_octets_length} {{
         return Err(AVPError::InvalidAttributeLengthError(\"{fixed_octets_length} bytes\".to_owned(), value.len()));
     }}
-    packet.add(AVP::from_bytes({type_identifier}, value));
+    let avp = AVP::from_bytes_in(packet.avp_buf(), {type_identifier}, value);
+    packet.add(avp);
     Ok(())
 }}
 /// Lookup a `{method_identifier}` fixed-length octets value from a packet.
@@ -910,8 +923,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Box<[u8]>> {{
 /// Lookup all of the `{method_identifier}` fixed-length octets value from a packet.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Vec<Box<[u8]>> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_bytes());
     }}
     vec
@@ -929,7 +943,8 @@ fn generate_ipaddr_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` ipaddr value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &Ipv4Addr) {{
-    packet.add(AVP::from_ipv4({type_identifier}, value));
+    let avp = AVP::from_ipv4_in(packet.avp_buf(), {type_identifier}, value);
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` ipaddr value from a packet.
 ///
@@ -949,8 +964,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Ipv4Addr, AV
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Ipv4Addr>, AVPError> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_ipv4()?);
     }}
     Ok(vec)
@@ -972,7 +988,8 @@ fn generate_ipv4_prefix_attribute_code(
 ///
 /// Returns an `AVPError` if `value` is not exactly 4 bytes.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), AVPError> {{
-    packet.add(AVP::from_ipv4_prefix({type_identifier}, value)?);
+    let avp = AVP::from_ipv4_prefix_in(packet.avp_buf(), {type_identifier}, value)?;
+    packet.add(avp);
     Ok(())
 }}
 /// Lookup a `{method_identifier}` ipv4 prefix value from a packet.
@@ -993,8 +1010,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Box<[u8]>, A
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Box<[u8]>>, AVPError> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_ipv4_prefix()?);
     }}
     Ok(vec)
@@ -1012,7 +1030,8 @@ fn generate_ipv6addr_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` ipv6addr value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &Ipv6Addr) {{
-    packet.add(AVP::from_ipv6({type_identifier}, value));
+    let avp = AVP::from_ipv6_in(packet.avp_buf(), {type_identifier}, value);
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` ipv6addr value from a packet.
 ///
@@ -1032,8 +1051,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Ipv6Addr, AV
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Ipv6Addr>, AVPError> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_ipv6()?);
     }}
     Ok(vec)
@@ -1055,7 +1075,8 @@ fn generate_ipv6_prefix_attribute_code(
 ///
 /// Returns an `AVPError` if `value` exceeds 16 bytes.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), AVPError> {{
-    packet.add(AVP::from_ipv6_prefix({type_identifier}, value)?);
+    let avp = AVP::from_ipv6_prefix_in(packet.avp_buf(), {type_identifier}, value)?;
+    packet.add(avp);
     Ok(())
 }}
 /// Lookup a `{method_identifier}` ipv6 prefix value from a packet.
@@ -1076,8 +1097,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Box<[u8]>, A
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Box<[u8]>>, AVPError> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_ipv6_prefix()?);
     }}
     Ok(vec)
@@ -1095,7 +1117,8 @@ fn generate_date_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` date value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &SystemTime) {{
-    packet.add(AVP::from_date({type_identifier}, value));
+    let avp = AVP::from_date_in(packet.avp_buf(), {type_identifier}, value);
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` date value from a packet.
 ///
@@ -1115,8 +1138,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<SystemTime, 
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<SystemTime>, AVPError> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_date()?);
     }}
     Ok(vec)
@@ -1134,7 +1158,8 @@ fn generate_integer_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` integer value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: u32) {{
-    packet.add(AVP::from_u32({type_identifier}, value));
+    let avp = AVP::from_u32_in(packet.avp_buf(), {type_identifier}, value);
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` integer value from a packet.
 ///
@@ -1154,8 +1179,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<u32, AVPErro
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<u32>, AVPError> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_u32()?);
     }}
     Ok(vec)
@@ -1173,7 +1199,8 @@ fn generate_tagged_integer_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` tagged integer value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, tag: Option<&Tag>, value: u32) {{
-    packet.add(AVP::from_tagged_u32({type_identifier}, tag, value));
+    let avp = AVP::from_tagged_u32_in(packet.avp_buf(), {type_identifier}, tag, value);
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` tagged integer value from a packet.
 ///
@@ -1193,8 +1220,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<(u32, Tag), 
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<(u32, Tag)>, AVPError> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_tagged_u32()?);
     }}
     Ok(vec)
@@ -1213,7 +1241,8 @@ fn generate_value_defined_integer_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` value-defined integer value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: {value_type}) {{
-    packet.add(AVP::from_u32({type_identifier}, value));
+    let avp = AVP::from_u32_in(packet.avp_buf(), {type_identifier}, value);
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` value-defined integer value from a packet.
 ///
@@ -1233,8 +1262,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<{value_type}
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<{value_type}>, AVPError> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_u32()? as {value_type});
     }}
     Ok(vec)
@@ -1253,7 +1283,8 @@ fn generate_tagged_value_defined_integer_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` tagged value-defined integer value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, tag: Option<&Tag>, value: {value_type}) {{
-    packet.add(AVP::from_tagged_u32({type_identifier}, tag, value));
+    let avp = AVP::from_tagged_u32_in(packet.avp_buf(), {type_identifier}, tag, value);
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` tagged value-defined integer value from a packet.
 ///
@@ -1276,8 +1307,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<({value_type
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<({value_type}, Tag)>, AVPError> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         let (v, t) = avp.encode_tagged_u32()?;
         vec.push((v as {value_type}, t));
     }}
@@ -1296,7 +1328,8 @@ fn generate_short_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` short integer value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: u16) {{
-    packet.add(AVP::from_u16({type_identifier}, value));
+    let avp = AVP::from_u16_in(packet.avp_buf(), {type_identifier}, value);
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` short integer value from a packet.
 ///
@@ -1316,8 +1349,9 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<u16, AVPErro
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<u16>, AVPError> {{
-    let mut vec = Vec::new();
-    for avp in packet.lookup_all({type_identifier}) {{
+    let avps = packet.lookup_all({type_identifier});
+    let mut vec = Vec::with_capacity(avps.len());
+    for avp in avps {{
         vec.push(avp.encode_u16()?);
     }}
     Ok(vec)
@@ -1344,7 +1378,8 @@ fn generate_vsa_string_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` string value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &str) {{
-    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, value.as_bytes()));
+    let avp = AVP::from_vsa_in(packet.avp_buf(), {vendor_id}_u32, {type_identifier}, value.as_bytes());
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` string value from a packet.
 ///
@@ -1366,9 +1401,10 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<String, AVPE
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<String>, AVPError> {{
-    let mut vec = Vec::new();
-    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
-        vec.push(AVP::from_bytes(0, &payload).encode_string()?);
+    let payloads = packet.lookup_all_vsa({vendor_id}_u32, {type_identifier});
+    let mut vec = Vec::with_capacity(payloads.len());
+    for payload in payloads {{
+        vec.push(AVP::encode_string_value(&payload)?);
     }}
     Ok(vec)
 }}
@@ -1390,8 +1426,11 @@ fn generate_vsa_user_password_attribute_code(
 ///
 /// Returns an `AVPError` if encoding the user-password value fails.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), AVPError> {{
-    let encoded = AVP::from_user_password(0, value, packet.secret(), packet.authenticator())?;;
-    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &encoded.encode_bytes()));
+    let secret = packet.secret().to_owned();
+    let auth = packet.authenticator().to_owned();
+    let encoded = AVP::from_user_password(0, value, &secret, &auth)?;;
+    let avp = AVP::from_vsa_in(packet.avp_buf(), {vendor_id}_u32, {type_identifier}, &encoded.encode_bytes());
+    packet.add(avp);
     Ok(())
 }}
 /// Lookup a `{method_identifier}` user-password value from a packet.
@@ -1417,12 +1456,14 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Vec<u8>, AVP
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Vec<u8>>, AVPError> {{
-    let mut vec = Vec::new();
-    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
-        vec.push(
-            AVP::from_bytes(0, &payload)
-                .encode_user_password(packet.secret(), packet.authenticator())?,
-        );
+    let payloads = packet.lookup_all_vsa({vendor_id}_u32, {type_identifier});
+    let mut vec = Vec::with_capacity(payloads.len());
+    for payload in payloads {{
+        vec.push(AVP::encode_user_password_value(
+            &payload,
+            packet.secret(),
+            packet.authenticator(),
+        )?);
     }}
     Ok(vec)
 }}
@@ -1440,7 +1481,8 @@ fn generate_vsa_octets_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` octets value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) {{
-    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, value));
+    let avp = AVP::from_vsa_in(packet.avp_buf(), {vendor_id}_u32, {type_identifier}, value);
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` octets value from a packet.
 ///
@@ -1482,7 +1524,8 @@ pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), 
     if value.len() != {fixed_octets_length} {{
         return Err(AVPError::InvalidAttributeLengthError(\"{fixed_octets_length} bytes\".to_owned(), value.len()));
     }}
-    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, value));
+    let avp = AVP::from_vsa_in(packet.avp_buf(), {vendor_id}_u32, {type_identifier}, value);
+    packet.add(avp);
     Ok(())
 }}
 /// Lookup a `{method_identifier}` fixed-length octets value from a packet.
@@ -1517,7 +1560,8 @@ fn generate_vsa_ipaddr_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` ipaddr value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &Ipv4Addr) {{
-    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &value.octets()));
+    let avp = AVP::from_vsa_in(packet.avp_buf(), {vendor_id}_u32, {type_identifier}, &value.octets());
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` ipaddr value from a packet.
 ///
@@ -1539,9 +1583,10 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Ipv4Addr, AV
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Ipv4Addr>, AVPError> {{
-    let mut vec = Vec::new();
-    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
-        vec.push(AVP::from_bytes(0, &payload).encode_ipv4()?);
+    let payloads = packet.lookup_all_vsa({vendor_id}_u32, {type_identifier});
+    let mut vec = Vec::with_capacity(payloads.len());
+    for payload in payloads {{
+        vec.push(AVP::encode_ipv4_value(&payload)?);
     }}
     Ok(vec)
 }}
@@ -1563,8 +1608,9 @@ fn generate_vsa_ipv4_prefix_attribute_code(
 ///
 /// Returns an `AVPError` if `value` is not exactly 4 bytes.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), AVPError> {{
-    let avp = AVP::from_ipv4_prefix(0, value)?;
-    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &avp.encode_bytes()));
+    let tmp = AVP::from_ipv4_prefix(0, value)?;
+    let avp = AVP::from_vsa_in(packet.avp_buf(), {vendor_id}_u32, {type_identifier}, &tmp.encode_bytes());
+    packet.add(avp);
     Ok(())
 }}
 /// Lookup a `{method_identifier}` ipv4 prefix value from a packet.
@@ -1587,9 +1633,10 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Box<[u8]>, A
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Box<[u8]>>, AVPError> {{
-    let mut vec = Vec::new();
-    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
-        vec.push(AVP::from_bytes(0, &payload).encode_ipv4_prefix()?);
+    let payloads = packet.lookup_all_vsa({vendor_id}_u32, {type_identifier});
+    let mut vec = Vec::with_capacity(payloads.len());
+    for payload in payloads {{
+        vec.push(AVP::encode_ipv4_prefix_value(&payload)?);
     }}
     Ok(vec)
 }}
@@ -1607,7 +1654,8 @@ fn generate_vsa_ipv6addr_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` ipv6addr value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &Ipv6Addr) {{
-    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &value.octets()));
+    let avp = AVP::from_vsa_in(packet.avp_buf(), {vendor_id}_u32, {type_identifier}, &value.octets());
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` ipv6addr value from a packet.
 ///
@@ -1629,9 +1677,10 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Ipv6Addr, AV
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Ipv6Addr>, AVPError> {{
-    let mut vec = Vec::new();
-    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
-        vec.push(AVP::from_bytes(0, &payload).encode_ipv6()?);
+    let payloads = packet.lookup_all_vsa({vendor_id}_u32, {type_identifier});
+    let mut vec = Vec::with_capacity(payloads.len());
+    for payload in payloads {{
+        vec.push(AVP::encode_ipv6_value(&payload)?);
     }}
     Ok(vec)
 }}
@@ -1653,8 +1702,9 @@ fn generate_vsa_ipv6_prefix_attribute_code(
 ///
 /// Returns an `AVPError` if `value` exceeds 16 bytes.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &[u8]) -> Result<(), AVPError> {{
-    let avp = AVP::from_ipv6_prefix(0, value)?;
-    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &avp.encode_bytes()));
+    let tmp = AVP::from_ipv6_prefix(0, value)?;
+    let avp = AVP::from_vsa_in(packet.avp_buf(), {vendor_id}_u32, {type_identifier}, &tmp.encode_bytes());
+    packet.add(avp);
     Ok(())
 }}
 /// Lookup a `{method_identifier}` ipv6 prefix value from a packet.
@@ -1677,9 +1727,10 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<Box<[u8]>, A
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<Box<[u8]>>, AVPError> {{
-    let mut vec = Vec::new();
-    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
-        vec.push(AVP::from_bytes(0, &payload).encode_ipv6_prefix()?);
+    let payloads = packet.lookup_all_vsa({vendor_id}_u32, {type_identifier});
+    let mut vec = Vec::with_capacity(payloads.len());
+    for payload in payloads {{
+        vec.push(AVP::encode_ipv6_prefix_value(&payload)?);
     }}
     Ok(vec)
 }}
@@ -1697,8 +1748,9 @@ fn generate_vsa_date_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` date value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: &SystemTime) {{
-    let avp = AVP::from_date(0, value);
-    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &avp.encode_bytes()));
+    let tmp = AVP::from_date(0, value);
+    let avp = AVP::from_vsa_in(packet.avp_buf(), {vendor_id}_u32, {type_identifier}, &tmp.encode_bytes());
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` date value from a packet.
 ///
@@ -1720,9 +1772,10 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<SystemTime, 
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<SystemTime>, AVPError> {{
-    let mut vec = Vec::new();
-    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
-        vec.push(AVP::from_bytes(0, &payload).encode_date()?);
+    let payloads = packet.lookup_all_vsa({vendor_id}_u32, {type_identifier});
+    let mut vec = Vec::with_capacity(payloads.len());
+    for payload in payloads {{
+        vec.push(AVP::encode_date_value(&payload)?);
     }}
     Ok(vec)
 }}
@@ -1740,7 +1793,8 @@ fn generate_vsa_integer_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` integer value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: u32) {{
-    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &u32::to_be_bytes(value)));
+    let avp = AVP::from_vsa_in(packet.avp_buf(), {vendor_id}_u32, {type_identifier}, &u32::to_be_bytes(value));
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` integer value from a packet.
 ///
@@ -1762,9 +1816,10 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<u32, AVPErro
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<u32>, AVPError> {{
-    let mut vec = Vec::new();
-    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
-        vec.push(AVP::from_bytes(0, &payload).encode_u32()?);
+    let payloads = packet.lookup_all_vsa({vendor_id}_u32, {type_identifier});
+    let mut vec = Vec::with_capacity(payloads.len());
+    for payload in payloads {{
+        vec.push(AVP::encode_u32_value(&payload)?);
     }}
     Ok(vec)
 }}
@@ -1784,7 +1839,8 @@ fn generate_vsa_value_defined_integer_attribute_code(
         "/// Add `{method_identifier}` integer value to a packet.
 #[allow(clippy::unnecessary_cast)]
 pub fn add_{method_identifier}(packet: &mut Packet, value: {value_type}) {{
-    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &u32::to_be_bytes(value as u32)));
+    let avp = AVP::from_vsa_in(packet.avp_buf(), {vendor_id}_u32, {type_identifier}, &u32::to_be_bytes(value as u32));
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` integer value from a packet.
 ///
@@ -1806,9 +1862,10 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<{value_type}
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<{value_type}>, AVPError> {{
-    let mut vec = Vec::new();
-    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
-        vec.push(AVP::from_bytes(0, &payload).encode_u32()? as {value_type});
+    let payloads = packet.lookup_all_vsa({vendor_id}_u32, {type_identifier});
+    let mut vec = Vec::with_capacity(payloads.len());
+    for payload in payloads {{
+        vec.push(AVP::encode_u32_value(&payload)? as {value_type});
     }}
     Ok(vec)
 }}
@@ -1826,7 +1883,8 @@ fn generate_vsa_short_attribute_code(
     let code = format!(
         "/// Add `{method_identifier}` short integer value to a packet.
 pub fn add_{method_identifier}(packet: &mut Packet, value: u16) {{
-    packet.add(AVP::from_vsa({vendor_id}_u32, {type_identifier}, &u16::to_be_bytes(value)));
+    let avp = AVP::from_vsa_in(packet.avp_buf(), {vendor_id}_u32, {type_identifier}, &u16::to_be_bytes(value));
+    packet.add(avp);
 }}
 /// Lookup a `{method_identifier}` short integer value from a packet.
 ///
@@ -1848,9 +1906,10 @@ pub fn lookup_{method_identifier}(packet: &Packet) -> Option<Result<u16, AVPErro
 /// Returns an `AVPError` if decoding fails.
 #[must_use]
 pub fn lookup_all_{method_identifier}(packet: &Packet) -> Result<Vec<u16>, AVPError> {{
-    let mut vec = Vec::new();
-    for payload in packet.lookup_all_vsa({vendor_id}_u32, {type_identifier}) {{
-        vec.push(AVP::from_bytes(0, &payload).encode_u16()?);
+    let payloads = packet.lookup_all_vsa({vendor_id}_u32, {type_identifier});
+    let mut vec = Vec::with_capacity(payloads.len());
+    for payload in payloads {{
+        vec.push(AVP::encode_u16_value(&payload)?);
     }}
     Ok(vec)
 }}

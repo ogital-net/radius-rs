@@ -52,14 +52,6 @@ pub fn ct_eq(a: &[u8], b: &[u8]) -> bool {
 
 // ── Hash functions ───────────────────────────────────────────────────────────
 
-/// Compute the MD5 hash of `data`, returning a 16-byte digest.
-pub fn md5(data: &[u8]) -> [u8; 16] {
-    let mut digest = [0u8; 16];
-    // SAFETY: EVP_md5() returns a valid static EVP_MD pointer; digest is 16 bytes.
-    unsafe { evp_digest(openssl_sys::EVP_md5(), data, &mut digest) }
-    digest
-}
-
 /// Compute the MD4 digest of `data`, returning a 16-byte result.
 ///
 /// Requires the MD4 algorithm to be available (legacy provider in OpenSSL 3.x).
@@ -105,46 +97,6 @@ pub fn random_bytes(n: usize) -> Box<[u8]> {
     let mut buf = vec![0u8; n];
     fill_random(&mut buf);
     buf.into_boxed_slice()
-}
-
-// ── HMAC-MD5 ─────────────────────────────────────────────────────────────────
-
-/// Compute HMAC-MD5 over `data` keyed with `key`, returning a 16-byte MAC.
-///
-/// # Panics
-/// Panics if the underlying call fails (should not happen with valid inputs).
-pub fn hmac_md5(key: &[u8], data: &[u8]) -> [u8; 16] {
-    let mut out = [0u8; 16];
-    let mut out_len: std::ffi::c_uint = 16;
-    // SAFETY: key and data are valid slices; out has exactly 16 bytes (MD5_DIGEST_LENGTH).
-    unsafe {
-        let ctx = openssl_sys::HMAC_CTX_new();
-        assert!(!ctx.is_null(), "HMAC_CTX_new failed");
-        assert_eq!(
-            openssl_sys::HMAC_Init_ex(
-                ctx,
-                key.as_ptr().cast(),
-                key.len() as c_int,
-                openssl_sys::EVP_md5(),
-                std::ptr::null_mut(),
-            ),
-            1,
-            "HMAC_Init_ex failed"
-        );
-        assert_eq!(
-            openssl_sys::HMAC_Update(ctx, data.as_ptr(), data.len()),
-            1,
-            "HMAC_Update failed"
-        );
-        assert_eq!(
-            openssl_sys::HMAC_Final(ctx, out.as_mut_ptr(), &mut out_len),
-            1,
-            "HMAC_Final failed"
-        );
-        openssl_sys::HMAC_CTX_free(ctx);
-    }
-    debug_assert_eq!(out_len, 16);
-    out
 }
 
 // ── DES-ECB ──────────────────────────────────────────────────────────────────

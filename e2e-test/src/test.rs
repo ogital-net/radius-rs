@@ -877,7 +877,7 @@ mod tests {
 
     /// Sends a RADIUS Access-Request carrying MS-CHAPv1 attributes via `radclient`
     /// and verifies that our server authenticates them correctly using the test
-    /// vectors from the FreeRADIUS source tree:
+    /// vectors from the `FreeRADIUS` source tree:
     /// <https://github.com/FreeRADIUS/freeradius-server/blob/v3.2.x/src/tests/mschapv1>
     ///
     /// Test vector summary:
