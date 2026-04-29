@@ -26,21 +26,48 @@ Random operations are assumed to be expensive. Where multiple random bytes of kn
 
 Exactly one of three mutually exclusive features must be active (enforced via `compile_error!` in `lib.rs`):
 
-- **`aws-lc`** (default) — uses `aws-lc-sys` FFI directly; `RAND_bytes` and `MD5` from AWS-LC.
+- **`aws-lc`** (default) — uses `aws-lc-sys` FFI directly; `RAND_bytes`, `MD4`, `SHA-1`, and `DES-ECB` from AWS-LC.
 - **`openssl`** — uses the `openssl` and `rand` crates.
-- **`rust-crypto`** — pure-Rust backend using RustCrypto crates (`md-5`, `md4`, `sha1`, `hmac`, `des`) + `rand`.
+- **`rust-crypto`** — pure-Rust backend using RustCrypto crates (`md4`, `sha1`, `des`) + `rand`.
 
-The unified API in `radius/src/core/crypto.rs` exposes: `md5(data) -> [u8; 16]`, `random_bytes(n) -> Vec<u8>`, `fill_random(buf: &mut [u8])`.
+**MD5 and HMAC-MD5 are unconditionally provided by the in-tree `fast_md5` module** regardless of which backend is active. The backend features only control: `fill_random`/`random_bytes` (RNG) and the `md4`/`sha1`/`des_ecb_encrypt` primitives used by the MS-CHAP helpers.
+
+The unified API in `radius/src/core/crypto.rs` exposes: `md5(data) -> [u8; 16]`, `md5_of(parts) -> [u8; 16]`, `hmac_md5(key, data) -> [u8; 16]`, `random_bytes(n) -> Box<[u8]>`, `fill_random(buf: &mut [u8])`.
 
 To test all backends: `make check_all` (also `make check_openssl`, `make check_rust_crypto`).
 
 ## Key Abstractions
 
 - **`Packet`** — core struct (`code`, `identifier`, `authenticator`, `secret`, `attributes`). Max wire size 4096 bytes. `Packet::new` picks a random identifier; use `Packet::new_with_identifier` when you need a specific one. `Packet::decode` parses wire bytes.
-- **`AVP`** — `{ typ: AVPType (u8), value: Bytes }`. Constructors/decoders for every RADIUS value type including `from_user_password` and `from_tunnel_password` (encrypted variants).
+- **`AVP`** — `{ raw: Bytes }` (wire encoding: type byte + length byte + value). Constructors/decoders for every RADIUS value type including `from_user_password` and `from_tunnel_password` (encrypted variants). Buffer-reuse `_in` variants accept a `&mut BytesMut` arena for packet-building.
 - **`Request`** — wraps an incoming `Packet` with `local_addr` and `remote_addr`.
 - **`Client`** — UDP; configurable connection/socket timeouts; no built-in retransmission.
 - **`Server`** — async Tokio UDP server; requires a `RequestHandler` and `SecretProvider`; deduplicates in-flight requests via `Arc<RwLock<HashSet<RequestKey>>>`.
+
+## In-Tree MD5 (`radius/src/core/fast_md5/`)
+
+`fast_md5` is a module directory (`mod.rs`, `aarch64.rs`, `x86_64.rs`, `fallback.rs`) implementing a highly-optimised MD5. It is the **primary and unconditional** MD5 implementation: `crypto::md5`, `crypto::md5_of`, and `crypto::hmac_md5` all delegate to it regardless of which backend feature is active.
+
+**Architecture dispatch:**
+- `x86_64` — Two **monolithic `asm!` blocks** (one for the 16 F rounds, one for G+H+I rounds), ported from `md5_block_noleag()` in animetosho/md5-optimisation. `NoLEA` replaces each 3-operand `leal K(A,input),A` (3-cycle latency) with `add $K,A` + `add [m+off],D` (two 1-cycle ADDs). `GOpt` splits G into `(~D&C)+(D&B)` to break the B-dependency chain. A rolling TMP1 register carries the prior-round C copy, and each round pre-loads the next input word into the current D register.
+- `aarch64` — Rust `f!`/`g!`/`h!`/`i!` round macros, each with a **per-round `asm!` rotate barrier** that pins the accumulator to a concrete 32-bit register at every round boundary, guiding LLVM register allocation (~2% faster than `rotate_left()` alone on Apple Silicon). LLVM naturally emits `BIC`/`ORN` for `!d & c` (G) and `b | !d` (I). Input words are loaded **on demand** via a closure (`mi(N)`) rather than front-loaded into a `[u32; 16]` array — front-loading forces all 8 LDPs to retire before round 1 starts, while on-demand loading lets LLVM interleave LDPs with round arithmetic (~0.7% measured win).
+- Fallback — Pure Rust with `rotate_left`; same GOpt/I-optimization forms; LLVM emits `rorxl`/`rorl` as appropriate.
+
+**Performance vs aws-lc on Apple Silicon (measured):**
+
+| Input | fast_md5 | aws-lc |
+|-------|----------|--------|
+| 16 B  | ~291 MiB/s | ~284 MiB/s (+2.5%) |
+| 64 B  | ~510 MiB/s | ~513 MiB/s (≈tie) |
+| 256 B | ~776 MiB/s | ~782 MiB/s (-0.8%) |
+| 1024 B| ~892 MiB/s | ~900 MiB/s (-0.9%) |
+| 16 KB | ~935 MiB/s | ~945 MiB/s (-1.1%) |
+
+The residual ~1% gap at large inputs is structural: aws-lc is a standalone function with an explicit block loop (amortizes callee-save overhead over many blocks and builds all 64 constants inline via `movz/movk`), while our function is always-inlined and loads constants from the literal pool.
+
+**Key implementation notes:**
+- `struct Md5` (private) — streaming context: `state: [u32; 4]`, `count: u64`, `buf: [u8; 64]`, `buf_len: usize`.
+- `pub fn md5(data: &[u8]) -> [u8; 16]` (#[inline]) and `pub fn md5_of(parts: &[&[u8]]) -> [u8; 16]` (#[inline], scatter-gather, no allocation).
 
 ## Conventions
 

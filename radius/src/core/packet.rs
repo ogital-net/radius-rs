@@ -1,16 +1,19 @@
 use std::convert::TryInto;
 use std::fmt::Debug;
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use thiserror::Error;
 
 use crate::core::attributes::Attributes;
-use crate::core::avp::{AVPType, AVP, VENDOR_SPECIFIC_TYPE};
+use crate::core::avp::{AVPError, AVPType, AVP, VENDOR_SPECIFIC_TYPE};
 use crate::core::code::Code;
 use crate::core::crypto;
+use crate::core::tag::Tag;
 
 const MAX_PACKET_LENGTH: usize = 4096;
 const RADIUS_PACKET_HEADER_LENGTH: usize = 20; // i.e. minimum packet length
+/// Initial capacity of the per-packet AVP scratch buffer (`avp_buf`).
+const AVP_BUF_INIT_CAPACITY: usize = 256;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum PacketError {
@@ -60,14 +63,30 @@ pub enum PacketError {
 /// assert_eq!(decoded.code(), Code::AccessRequest);
 /// assert_eq!(rfc2865::lookup_user_name(&decoded).unwrap().unwrap(), "alice");
 /// ```
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct Packet {
     code: Code,
     identifier: u8,
-    authenticator: Bytes,
+    authenticator: [u8; 16],
     secret: Bytes,
     attributes: Attributes,
+    /// Scratch buffer for the `AVP::from_*_in` family of constructors.
+    /// Successive `add_*` calls append into this arena, keeping AVP values
+    /// in a single contiguous allocation.  Not part of logical packet equality.
+    pub(crate) avp_buf: BytesMut,
 }
+
+impl PartialEq for Packet {
+    fn eq(&self, other: &Self) -> bool {
+        self.code == other.code
+            && self.identifier == other.identifier
+            && self.authenticator == other.authenticator
+            && self.secret == other.secret
+            && self.attributes == other.attributes
+    }
+}
+
+impl Eq for Packet {}
 
 impl Packet {
     /// Constructor for a Packet.
@@ -89,13 +108,15 @@ impl Packet {
 
     fn _new(code: Code, secret: &[u8], maybe_identifier: Option<u8>) -> Self {
         if let Some(ident) = maybe_identifier {
-            let authenticator = Bytes::from(crypto::random_bytes(16));
+            let mut authenticator = [0u8; 16];
+            crypto::fill_random(&mut authenticator);
             Packet {
                 code,
                 identifier: ident,
                 authenticator,
                 secret: Bytes::copy_from_slice(secret),
                 attributes: Attributes(vec![]),
+                avp_buf: BytesMut::with_capacity(AVP_BUF_INIT_CAPACITY),
             }
         } else {
             // Single RNG call: 16 bytes authenticator + 1 byte identifier
@@ -104,9 +125,10 @@ impl Packet {
             Packet {
                 code,
                 identifier: buf[16],
-                authenticator: Bytes::copy_from_slice(&buf[..16]),
+                authenticator: buf[..16].try_into().unwrap(),
                 secret: Bytes::copy_from_slice(secret),
                 attributes: Attributes(vec![]),
+                avp_buf: BytesMut::with_capacity(AVP_BUF_INIT_CAPACITY),
             }
         }
     }
@@ -131,6 +153,23 @@ impl Packet {
         &self.authenticator
     }
 
+    /// Returns a reference to the 16-byte authenticator array directly,
+    /// avoiding the slice indirection of [`Packet::authenticator`].
+    /// Useful when callers need a `[u8; 16]` copy without re-validating length.
+    #[must_use]
+    pub fn authenticator_array(&self) -> &[u8; 16] {
+        &self.authenticator
+    }
+
+    /// Returns a cheap-clone (`Bytes` Arc-increment) of the shared secret.
+    ///
+    /// Prefer this to `Bytes::copy_from_slice(packet.secret())` when you need
+    /// owned secret bytes that outlive a `&mut self` borrow on the packet.
+    #[must_use]
+    pub fn secret_bytes(&self) -> Bytes {
+        self.secret.clone()
+    }
+
     /// This sets an identifier value to an instance.
     pub fn set_identifier(&mut self, identifier: u8) {
         self.identifier = identifier;
@@ -142,6 +181,11 @@ impl Packet {
     ///
     /// Returns [`PacketError`] if the byte slice is too short, length fields are invalid, or
     /// the attributes cannot be decoded.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic in practice: the only `unwrap` (slicing the 16-byte authenticator)
+    /// is guarded by the preceding length checks.
     pub fn decode(bs: &[u8], secret: &[u8]) -> Result<Self, PacketError> {
         if bs.len() < RADIUS_PACKET_HEADER_LENGTH {
             return Err(PacketError::InsufficientPacketPayloadLengthError(
@@ -183,24 +227,62 @@ impl Packet {
             Err(e) => return Err(PacketError::DecodingError(e)),
         };
 
+        // The authenticator is a fixed-size [u8; 16] array, so it does not
+        // share the `bs_bytes` Arc and does not pin that allocation.
         Ok(Packet {
             code: Code::from(bs[0]),
             identifier: bs[1],
-            authenticator: bs_bytes.slice(4..RADIUS_PACKET_HEADER_LENGTH),
+            authenticator: bs[4..RADIUS_PACKET_HEADER_LENGTH].try_into().unwrap(),
             secret: Bytes::copy_from_slice(secret),
             attributes,
+            avp_buf: BytesMut::new(),
         })
     }
 
-    /// This method makes a response packet according to self (i.e. request packet).
+    /// Makes a response packet from this request packet, copying the
+    /// identifier and authenticator and sharing the secret.
+    ///
+    /// Prefer [`Packet::into_response`] when the request is no longer needed,
+    /// as it avoids cloning the secret buffer.
     #[must_use]
-    pub fn make_response_packet(&self, code: Code) -> Self {
+    pub fn make_response(&self, code: Code) -> Self {
         Packet {
             code,
             identifier: self.identifier,
-            authenticator: self.authenticator.clone(),
+            authenticator: self.authenticator,
             secret: self.secret.clone(),
-            attributes: Attributes(vec![]),
+            attributes: Attributes(Vec::new()),
+            avp_buf: BytesMut::with_capacity(AVP_BUF_INIT_CAPACITY),
+        }
+    }
+
+    /// Consumes `self` and returns a new response packet, copying the
+    /// `[u8; 16]` authenticator and moving the secret buffer without cloning.
+    ///
+    /// The request's `attributes` Vec and `avp_buf` are reused: the Vec is
+    /// cleared (dropping all AVP `Bytes` references, which releases any
+    /// decoded wire buffer), and the scratch buffer is cleared then guaranteed
+    /// to hold at least [`AVP_BUF_INIT_CAPACITY`] bytes without reallocating.
+    #[must_use]
+    pub fn into_response(self, code: Code) -> Self {
+        let Packet {
+            identifier,
+            authenticator,
+            secret,
+            mut attributes,
+            mut avp_buf,
+            ..
+        } = self;
+        attributes.0.clear();
+        avp_buf.clear();
+        avp_buf.reserve(AVP_BUF_INIT_CAPACITY.saturating_sub(avp_buf.capacity()));
+        Packet {
+            code,
+            identifier,
+            authenticator,
+            secret,
+            attributes,
+            avp_buf,
         }
     }
 
@@ -210,13 +292,28 @@ impl Packet {
     ///
     /// Returns [`PacketError`] if the packet is too large, encoding fails, or the code is unknown.
     pub fn encode(&self) -> Result<Vec<u8>, PacketError> {
-        let mut bs = match self.marshal_binary() {
-            Ok(bs) => bs,
-            Err(e) => return Err(PacketError::EncodingError(e)),
-        };
+        let mut bs = Vec::new();
+        self.encode_to(&mut bs)?;
+        Ok(bs)
+    }
+
+    /// Encode the packet into the caller-supplied buffer, reusing its existing
+    /// allocation when possible.
+    ///
+    /// `dst` is cleared on entry and the packet is appended in place. Servers
+    /// handling many requests can keep one `Vec<u8>` per task and call this
+    /// method on every response to eliminate allocator traffic on the encode
+    /// hot path.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PacketError`] if the packet exceeds 4096 bytes or the code is unknown.
+    pub fn encode_to(&self, dst: &mut Vec<u8>) -> Result<(), PacketError> {
+        dst.clear();
+        self.marshal_into(dst).map_err(PacketError::EncodingError)?;
 
         match self.code {
-            Code::AccessRequest | Code::StatusServer => Ok(bs),
+            Code::AccessRequest | Code::StatusServer => Ok(()),
             Code::AccessAccept
             | Code::AccessReject
             | Code::AccountingRequest
@@ -228,24 +325,26 @@ impl Packet {
             | Code::CoaRequest
             | Code::CoaAck
             | Code::CoaNak => {
-                let mut buf: Vec<u8> = Vec::with_capacity(bs.len() + self.secret.len());
-                buf.extend_from_slice(&bs[..4]);
-                match self.code {
+                // Compute md5(code|id|len | auth_for_hash | attributes | secret) without
+                // allocating an intermediate Vec by using the scatter-gather md5_of.
+                // For request types the authenticator field in the hash is all zeros (RFC 2866 §3).
+                let auth_for_hash: &[u8] = match self.code {
                     Code::AccountingRequest // see "Request Authenticator" in https://tools.ietf.org/html/rfc2866#section-3
                     | Code::DisconnectRequest // same as "RFC2866"; https://tools.ietf.org/html/rfc5176#section-2.3
                     | Code::CoaRequest // same as "RFC2866"; https://tools.ietf.org/html/rfc5176#section-2.3
-                    => {
-                        buf.extend_from_slice(&[0u8; 16]);
-                    }
-                    _ => {
-                        buf.extend_from_slice(&self.authenticator);
-                    }
-                }
-                buf.extend_from_slice(&bs[RADIUS_PACKET_HEADER_LENGTH..]);
-                buf.extend_from_slice(&self.secret);
-                bs[4..20].copy_from_slice(&crypto::md5(&buf));
+                    => &[0u8; 16],
+                    _ => &self.authenticator,
+                };
+                // Compute the digest first (borrowing dst immutably), then store it.
+                let digest = crypto::md5_of(&[
+                    &dst[..4],
+                    auth_for_hash,
+                    &dst[RADIUS_PACKET_HEADER_LENGTH..],
+                    &self.secret,
+                ]);
+                dst[4..20].copy_from_slice(&digest);
 
-                Ok(bs)
+                Ok(())
             }
             _ => Err(PacketError::UnknownCodeError(format!("{:?}", self.code))),
         }
@@ -266,22 +365,22 @@ impl Packet {
      *  |  Attributes ...
      *  +-+-+-+-+-+-+-+-+-+-+-+-+-
      */
-    fn marshal_binary(&self) -> Result<Vec<u8>, String> {
-        let encoded_avp = self.attributes.encode()?;
-
-        let total_size = RADIUS_PACKET_HEADER_LENGTH + encoded_avp.len();
+    /// Append the wire encoding of the packet to `dst`. Caller is responsible
+    /// for clearing `dst` first if it must contain only this packet.
+    fn marshal_into(&self, dst: &mut Vec<u8>) -> Result<(), String> {
+        let total_size = RADIUS_PACKET_HEADER_LENGTH + self.attributes.total_size();
         if total_size > MAX_PACKET_LENGTH {
             return Err("packet is too large".to_owned());
         }
         let size = u16::try_from(total_size).expect("checked; MAX_PACKET_LENGTH fits in u16");
 
-        let mut bs: Vec<u8> = Vec::with_capacity(total_size);
-        bs.push(self.code as u8);
-        bs.push(self.identifier);
-        bs.extend_from_slice(&u16::to_be_bytes(size));
-        bs.extend_from_slice(&self.authenticator);
-        bs.extend_from_slice(&encoded_avp);
-        Ok(bs)
+        dst.reserve(total_size);
+        dst.push(self.code as u8);
+        dst.push(self.identifier);
+        dst.extend_from_slice(&u16::to_be_bytes(size));
+        dst.extend_from_slice(&self.authenticator);
+        self.attributes.encode(dst);
+        Ok(())
     }
 
     /// Returns whether the Packet is authentic response or not.
@@ -294,16 +393,14 @@ impl Packet {
             return false;
         }
 
-        let mut buf = Vec::with_capacity(
-            4 + (RADIUS_PACKET_HEADER_LENGTH - 4)
-                + (response.len() - RADIUS_PACKET_HEADER_LENGTH)
-                + secret.len(),
-        );
-        buf.extend_from_slice(&response[..4]);
-        buf.extend_from_slice(&request[4..RADIUS_PACKET_HEADER_LENGTH]);
-        buf.extend_from_slice(&response[RADIUS_PACKET_HEADER_LENGTH..]);
-        buf.extend_from_slice(secret);
-        crypto::md5(&buf) == response[4..RADIUS_PACKET_HEADER_LENGTH]
+        // md5(response[..4] || request[4..20] || response[20..] || secret)
+        // Use md5_of to avoid allocating an intermediate Vec.
+        crypto::md5_of(&[
+            &response[..4],
+            &request[4..RADIUS_PACKET_HEADER_LENGTH],
+            &response[RADIUS_PACKET_HEADER_LENGTH..],
+            secret,
+        ]) == response[4..RADIUS_PACKET_HEADER_LENGTH]
     }
 
     /// Returns whether the Packet is authentic request or not.
@@ -316,17 +413,25 @@ impl Packet {
         match Code::from(request[0]) {
             Code::AccessRequest | Code::StatusServer => true,
             Code::AccountingRequest | Code::DisconnectRequest | Code::CoaRequest => {
-                let mut buf = Vec::with_capacity(
-                    4 + 16 + (request.len() - RADIUS_PACKET_HEADER_LENGTH) + secret.len(),
-                );
-                buf.extend_from_slice(&request[..4]);
-                buf.extend_from_slice(&[0u8; 16]);
-                buf.extend_from_slice(&request[RADIUS_PACKET_HEADER_LENGTH..]);
-                buf.extend_from_slice(secret);
-                crypto::md5(&buf) == request[4..RADIUS_PACKET_HEADER_LENGTH]
+                // md5(request[..4] || 0x00*16 || request[20..] || secret)
+                crypto::md5_of(&[
+                    &request[..4],
+                    &[0u8; 16],
+                    &request[RADIUS_PACKET_HEADER_LENGTH..],
+                    secret,
+                ]) == request[4..RADIUS_PACKET_HEADER_LENGTH]
             }
             _ => false,
         }
+    }
+
+    /// Returns a mutable reference to the packet's AVP scratch buffer.
+    ///
+    /// Pass this to the `AVP::from_*_in` family of constructors so that
+    /// successive attribute values are written into a single contiguous
+    /// allocation rather than each getting their own heap block.
+    pub fn avp_buf(&mut self) -> &mut BytesMut {
+        &mut self.avp_buf
     }
 
     /// Add an AVP to the list of AVPs.
@@ -356,13 +461,19 @@ impl Packet {
         self.attributes.lookup_all(typ)
     }
 
+    /// Returns an iterator over AVPs matching `typ` without allocating a
+    /// `Vec<&AVP>`.  Prefer this to [`Packet::lookup_all`] in hot paths.
+    #[inline]
+    pub fn lookup_all_iter(&self, typ: AVPType) -> impl Iterator<Item = &AVP> + '_ {
+        self.attributes.lookup_all_iter(typ)
+    }
+
     /// Returns the value bytes of the first Vendor-Specific AVP (type 26) matching
     /// `(vendor_id, vendor_type)`. Returns `None` if no match is found.
     #[must_use]
     pub fn lookup_vsa(&self, vendor_id: u32, vendor_type: u8) -> Option<bytes::Bytes> {
         self.attributes
-            .lookup_all(VENDOR_SPECIFIC_TYPE)
-            .into_iter()
+            .lookup_all_iter(VENDOR_SPECIFIC_TYPE)
             .find_map(|avp| avp.decode_vsa(vendor_id, vendor_type))
     }
 
@@ -370,16 +481,76 @@ impl Packet {
     /// `(vendor_id, vendor_type)`.
     #[must_use]
     pub fn lookup_all_vsa(&self, vendor_id: u32, vendor_type: u8) -> Vec<bytes::Bytes> {
+        self.lookup_all_vsa_iter(vendor_id, vendor_type).collect()
+    }
+
+    /// Iterator over the value bytes of all Vendor-Specific AVPs (type 26) matching
+    /// `(vendor_id, vendor_type)`.  Avoids allocating an intermediate `Vec`.
+    #[inline]
+    pub fn lookup_all_vsa_iter(
+        &self,
+        vendor_id: u32,
+        vendor_type: u8,
+    ) -> impl Iterator<Item = bytes::Bytes> + '_ {
         self.attributes
-            .lookup_all(VENDOR_SPECIFIC_TYPE)
-            .into_iter()
-            .filter_map(|avp| avp.decode_vsa(vendor_id, vendor_type))
-            .collect()
+            .lookup_all_iter(VENDOR_SPECIFIC_TYPE)
+            .filter_map(move |avp| avp.decode_vsa(vendor_id, vendor_type))
     }
 
     /// Delete all Vendor-Specific AVPs (type 26) matching `(vendor_id, vendor_type)`.
     pub fn delete_vsa(&mut self, vendor_id: u32, vendor_type: u8) {
         self.attributes.del_vsa(vendor_id, vendor_type);
+    }
+
+    /// Encode and add a `User-Password`-style obfuscated AVP (RFC 2865 §5.2)
+    /// without cloning the packet's secret or authenticator.
+    ///
+    /// Used by the generated `add_*` helpers for `encrypt=1` attributes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AVPError`] if `value` exceeds 128 bytes, the secret is empty,
+    /// or the authenticator is not exactly 16 bytes.
+    #[inline]
+    pub fn add_user_password_attr(&mut self, typ: AVPType, value: &[u8]) -> Result<(), AVPError> {
+        // Disjoint field borrows: `avp_buf` is borrowed mutably while `secret`
+        // and `authenticator` are borrowed immutably; the borrow checker
+        // permits this because the borrows touch independent fields.
+        let avp = AVP::from_user_password_in(
+            &mut self.avp_buf,
+            typ,
+            value,
+            &self.secret,
+            &self.authenticator,
+        )?;
+        self.attributes.add(avp);
+        Ok(())
+    }
+
+    /// Encode and add a `Tunnel-Password`-style obfuscated AVP (RFC 2868 §3.5)
+    /// without cloning the packet's secret or authenticator.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AVPError`] if the secret is empty or the authenticator is not
+    /// exactly 16 bytes.
+    #[inline]
+    pub fn add_tunnel_password_attr(
+        &mut self,
+        typ: AVPType,
+        tag: Option<&Tag>,
+        value: &[u8],
+    ) -> Result<(), AVPError> {
+        let avp = AVP::from_tunnel_password_in(
+            &mut self.avp_buf,
+            typ,
+            tag,
+            value,
+            &self.secret,
+            &self.authenticator,
+        )?;
+        self.attributes.add(avp);
+        Ok(())
     }
 }
 
@@ -395,10 +566,7 @@ impl Packet {
     /// chunks as required by RFC 3579 §3.1.
     pub fn add_eap_message(&mut self, eap_data: &[u8]) {
         for chunk in eap_data.chunks(EAP_MESSAGE_MAX_CHUNK) {
-            self.add(AVP {
-                typ: crate::core::eap::EAP_MESSAGE_TYPE,
-                value: bytes::Bytes::copy_from_slice(chunk),
-            });
+            self.add(AVP::from_bytes(crate::core::eap::EAP_MESSAGE_TYPE, chunk));
         }
     }
 
@@ -408,15 +576,27 @@ impl Packet {
     /// Returns `None` if no `EAP-Message` attribute is present.
     #[must_use]
     pub fn lookup_eap_message(&self) -> Option<Vec<u8>> {
-        let avps = self
+        // Two-pass over the attribute list so the output Vec can be sized
+        // exactly, avoiding any growth reallocation; the intermediate
+        // `Vec<&AVP>` from the old `lookup_all` is gone entirely.
+        let mut total = 0usize;
+        let mut any = false;
+        for avp in self
             .attributes
-            .lookup_all(crate::core::eap::EAP_MESSAGE_TYPE);
-        if avps.is_empty() {
+            .lookup_all_iter(crate::core::eap::EAP_MESSAGE_TYPE)
+        {
+            any = true;
+            total += avp.value().len();
+        }
+        if !any {
             return None;
         }
-        let mut out: Vec<u8> = Vec::new();
-        for avp in avps {
-            out.extend_from_slice(&avp.value);
+        let mut out: Vec<u8> = Vec::with_capacity(total);
+        for avp in self
+            .attributes
+            .lookup_all_iter(crate::core::eap::EAP_MESSAGE_TYPE)
+        {
+            out.extend_from_slice(avp.value());
         }
         Some(out)
     }
@@ -431,7 +611,7 @@ impl Packet {
     /// **Call this as the last step before `encode()`**, because `encode()`
     /// updates the packet Authenticator field which is covered by the MAC.
     ///
-    /// For response packets created via [`Packet::make_response_packet`] the
+    /// For response packets created via [`Packet::make_response`] the
     /// internal `authenticator` field still holds the *request* authenticator,
     /// which is what RFC 3579 requires for response MAC computation.
     ///
@@ -442,33 +622,48 @@ impl Packet {
     ///
     /// # Errors
     ///
-    /// Returns [`PacketError`] if serialising the packet fails (e.g. it is
+    /// Returns [`PacketError`] if serializing the packet fails (e.g. it is
     /// too large).
     pub fn add_message_authenticator(&mut self) -> Result<(), PacketError> {
         use crate::core::eap::MESSAGE_AUTHENTICATOR_TYPE;
 
         // Replace any existing Message-Authenticator with a zeroed placeholder.
         self.attributes.del(MESSAGE_AUTHENTICATOR_TYPE);
-        self.add(AVP {
-            typ: MESSAGE_AUTHENTICATOR_TYPE,
-            value: bytes::Bytes::copy_from_slice(&[0u8; 16]),
-        });
+        self.add(AVP::from_bytes(MESSAGE_AUTHENTICATOR_TYPE, &[0u8; 16]));
 
-        // Serialise the packet with the zeroed placeholder in place.
-        let wire = self.marshal_binary().map_err(PacketError::EncodingError)?;
+        // Stream HMAC-MD5 over the conceptual wire image without ever building
+        // it: header (4) + authenticator (16) + each AVP's raw bytes.
+        let total_size = RADIUS_PACKET_HEADER_LENGTH + self.attributes.total_size();
+        if total_size > MAX_PACKET_LENGTH {
+            return Err(PacketError::EncodingError("packet is too large".to_owned()));
+        }
+        let size = u16::try_from(total_size).expect("checked; MAX_PACKET_LENGTH fits in u16");
 
-        // Compute HMAC-MD5 over the wire bytes.
-        let mac = crypto::hmac_md5(&self.secret, &wire);
+        let header = [
+            self.code as u8,
+            self.identifier,
+            (size >> 8) as u8,
+            (size & 0xff) as u8,
+        ];
+
+        let mut hmac = crypto::HmacMd5::new(&self.secret);
+        hmac.update(&header);
+        hmac.update(&self.authenticator);
+        for avp in &self.attributes.0 {
+            hmac.update(&avp.raw);
+        }
+        let mac = hmac.finalize();
 
         // Update the placeholder in-place (it is always the last attribute we
         // just added, so the unwrap is safe).
-        self.attributes
+        let avp_ref = self
+            .attributes
             .0
             .iter_mut()
             .rev()
-            .find(|a| a.typ == MESSAGE_AUTHENTICATOR_TYPE)
-            .unwrap()
-            .value = bytes::Bytes::copy_from_slice(&mac);
+            .find(|a| a.typ() == MESSAGE_AUTHENTICATOR_TYPE)
+            .unwrap();
+        *avp_ref = AVP::from_bytes(MESSAGE_AUTHENTICATOR_TYPE, &mac);
 
         Ok(())
     }
@@ -522,17 +717,20 @@ impl Packet {
             return false;
         };
 
-        // Build a modified copy: authenticator = request_authenticator,
-        // Message-Authenticator value = 16 zero bytes.
-        let mut modified = packet_bytes.to_vec();
-        modified[4..20].copy_from_slice(request_authenticator);
-        modified[ma_offset..ma_offset + 16].fill(0);
-
-        let computed = crypto::hmac_md5(secret, &modified);
-        computed == saved_mac
+        // Stream HMAC over the *unmodified* slices, substituting the request
+        // authenticator and the zeroed Message-Authenticator value as we go.
+        // This avoids the to_vec() copy of the entire packet.
+        let mut hmac = crypto::HmacMd5::new(secret);
+        hmac.update(&packet_bytes[..4]);
+        hmac.update(request_authenticator);
+        hmac.update(&packet_bytes[RADIUS_PACKET_HEADER_LENGTH..ma_offset]);
+        hmac.update(&[0u8; 16]);
+        hmac.update(&packet_bytes[ma_offset + 16..]);
+        hmac.finalize() == saved_mac
     }
 }
 
+#[allow(clippy::missing_fields_in_debug)] // avp_buf is an internal scratch buffer, not a logical field
 impl Debug for Packet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let hex_auth: String = {
@@ -618,7 +816,7 @@ mod tests {
             0xf6, 0xbf, 0x9b, 0x55, 0xe0, 0xb2, 0x06, 0x06, 0x00, 0x00, 0x00, 0x01, 0x0f, 0x06,
             0x00, 0x00, 0x00, 0x00, 0x0e, 0x06, 0xc0, 0xa8, 0x01, 0x03,
         ];
-        let mut response_packet = request_packet.make_response_packet(Code::AccessAccept);
+        let mut response_packet = request_packet.make_response(Code::AccessAccept);
         rfc2865::add_service_type(&mut response_packet, rfc2865::SERVICE_TYPE_LOGIN_USER);
         rfc2865::add_login_service(&mut response_packet, rfc2865::LOGIN_SERVICE_TELNET);
         rfc2865::add_login_ip_host(&mut response_packet, &Ipv4Addr::from([192, 168, 1, 3]));
@@ -795,24 +993,15 @@ mod tests {
     #[test]
     fn test_packet_attribute_length_boundary() {
         let mut packet = Packet::new(Code::AccessRequest, b"12345");
-        packet.add(AVP {
-            typ: 1,
-            value: bytes::Bytes::from(vec![1u8; 253]),
-        });
+        packet.add(AVP::from_bytes(1, &vec![1u8; 253]));
         let encoded = packet.encode();
         assert!(encoded.is_ok());
+    }
 
-        let mut packet = Packet::new(Code::AccessRequest, b"12345");
-        packet.add(AVP {
-            typ: 1,
-            value: bytes::Bytes::from(vec![1u8; 254]),
-        });
-        let encoded = packet.encode();
-        assert!(encoded.is_err());
-        assert_eq!(
-            encoded.err().unwrap(),
-            PacketError::EncodingError("attribute is too large".to_owned()),
-        );
+    #[test]
+    #[should_panic(expected = "bytes AVP too large")]
+    fn test_packet_attribute_too_large_panics() {
+        let _ = AVP::from_bytes(1, &vec![1u8; 254]);
     }
 
     #[test]
@@ -830,16 +1019,7 @@ mod tests {
     #[test]
     fn test_extend_adds_multiple_avps() {
         let mut packet = Packet::new(Code::AccessRequest, b"secret");
-        let avps = vec![
-            AVP {
-                typ: 1,
-                value: bytes::Bytes::from_static(b"alice"),
-            },
-            AVP {
-                typ: 1,
-                value: bytes::Bytes::from_static(b"bob"),
-            },
-        ];
+        let avps = vec![AVP::from_bytes(1, b"alice"), AVP::from_bytes(1, b"bob")];
         packet.extend(avps);
         let all = packet.lookup_all(1);
         assert_eq!(all.len(), 2);
@@ -927,7 +1107,7 @@ mod tests {
     fn test_avp_from_vsa_decode_vsa_roundtrip() {
         let payload = b"shell:priv-lvl=15";
         let avp = AVP::from_vsa(9, 1, payload);
-        assert_eq!(avp.typ, 26); // VENDOR_SPECIFIC_TYPE
+        assert_eq!(avp.typ(), 26); // VENDOR_SPECIFIC_TYPE
         let decoded = avp.decode_vsa(9, 1).unwrap();
         assert_eq!(decoded.as_ref(), payload);
     }
@@ -947,10 +1127,7 @@ mod tests {
     #[test]
     fn test_avp_decode_vsa_non_vsa_type() {
         // An AVP whose typ is not 26 should never match decode_vsa.
-        let avp = AVP {
-            typ: 1,
-            value: bytes::Bytes::from_static(b"\x00\x00\x00\x09\x01\x07value"),
-        };
+        let avp = AVP::from_bytes(1, b"\x00\x00\x00\x09\x01\x07value");
         assert!(avp.decode_vsa(9, 1).is_none());
     }
 

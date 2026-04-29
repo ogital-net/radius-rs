@@ -37,7 +37,7 @@ impl RequestHandler<(), io::Error> for MyRequestHandler {
             Code::AccessReject
         };
 
-        let mut resp_packet = req_packet.make_response_packet(code);
+        let mut resp_packet = req_packet.make_response(code);
         rfc2865::add_user_name(&mut resp_packet, user_name.as_str());
         conn.send_to(&resp_packet.encode().unwrap(), req.remote_addr())
             .await?;
@@ -55,7 +55,7 @@ impl RequestHandler<(), io::Error> for LongTimeTakingHandler {
     ) -> Result<(), io::Error> {
         sleep(Duration::from_secs(30)).await;
         let req_packet = req.packet();
-        let resp_packet = req_packet.make_response_packet(Code::AccessReject);
+        let resp_packet = req_packet.make_response(Code::AccessReject);
         conn.send_to(&resp_packet.encode().unwrap(), req.remote_addr())
             .await?;
         Ok(())
@@ -108,7 +108,7 @@ impl RequestHandler<(), io::Error> for VsaCaptureHandler {
             nas_port,
         });
 
-        let resp_packet = req_packet.make_response_packet(Code::AccessAccept);
+        let resp_packet = req_packet.make_response(Code::AccessAccept);
         conn.send_to(&resp_packet.encode().unwrap(), req.remote_addr())
             .await?;
         Ok(())
@@ -172,7 +172,7 @@ impl RequestHandler<(), io::Error> for EapMd5Handler {
                     &type_data,
                 );
 
-                let mut resp = req_packet.make_response_packet(Code::AccessChallenge);
+                let mut resp = req_packet.make_response(Code::AccessChallenge);
                 resp.add_eap_message(&challenge_eap.encode());
                 rfc2865::add_state(&mut resp, &state);
                 resp.add_message_authenticator()
@@ -216,7 +216,7 @@ impl RequestHandler<(), io::Error> for EapMd5Handler {
                 };
 
                 let result_eap = EapPacket::new_success_failure(eap_code, eap_pkt.identifier);
-                let mut resp = req_packet.make_response_packet(code);
+                let mut resp = req_packet.make_response(code);
                 resp.add_eap_message(&result_eap.encode());
                 resp.add_message_authenticator()
                     .map_err(|e| io::Error::other(e.to_string()))?;
@@ -311,7 +311,7 @@ impl RequestHandler<(), io::Error> for EapMsChapV2Handler {
                     EapType::MsChapV2,
                     &td,
                 );
-                let mut resp = req_packet.make_response_packet(Code::AccessChallenge);
+                let mut resp = req_packet.make_response(Code::AccessChallenge);
                 resp.add_eap_message(&challenge_eap.encode());
                 rfc2865::add_state(&mut resp, &state);
                 resp.add_message_authenticator()
@@ -395,7 +395,7 @@ impl RequestHandler<(), io::Error> for EapMsChapV2Handler {
                                 EapType::MsChapV2,
                                 &td,
                             );
-                            let mut resp = req_packet.make_response_packet(Code::AccessChallenge);
+                            let mut resp = req_packet.make_response(Code::AccessChallenge);
                             resp.add_eap_message(&success_eap.encode());
                             rfc2865::add_state(&mut resp, &new_state);
                             resp.add_message_authenticator()
@@ -415,7 +415,7 @@ impl RequestHandler<(), io::Error> for EapMsChapV2Handler {
                                 EapType::MsChapV2,
                                 &td,
                             );
-                            let mut resp = req_packet.make_response_packet(Code::AccessReject);
+                            let mut resp = req_packet.make_response(Code::AccessReject);
                             resp.add_eap_message(&failure_eap.encode());
                             resp.add_message_authenticator()
                                 .map_err(|e| io::Error::other(e.to_string()))?;
@@ -432,7 +432,7 @@ impl RequestHandler<(), io::Error> for EapMsChapV2Handler {
                         }
                         let success_eap =
                             EapPacket::new_success_failure(EapCode::Success, eap_pkt.identifier);
-                        let mut resp = req_packet.make_response_packet(Code::AccessAccept);
+                        let mut resp = req_packet.make_response(Code::AccessAccept);
                         resp.add_eap_message(&success_eap.encode());
                         resp.add_message_authenticator()
                             .map_err(|e| io::Error::other(e.to_string()))?;
@@ -487,7 +487,7 @@ impl RequestHandler<(), io::Error> for MsChapV1Handler {
             _ => Code::AccessReject,
         };
 
-        let resp_packet = req_packet.make_response_packet(code);
+        let resp_packet = req_packet.make_response(code);
         conn.send_to(&resp_packet.encode().unwrap(), req.remote_addr())
             .await?;
         Ok(())
@@ -877,7 +877,7 @@ mod tests {
 
     /// Sends a RADIUS Access-Request carrying MS-CHAPv1 attributes via `radclient`
     /// and verifies that our server authenticates them correctly using the test
-    /// vectors from the FreeRADIUS source tree:
+    /// vectors from the `FreeRADIUS` source tree:
     /// <https://github.com/FreeRADIUS/freeradius-server/blob/v3.2.x/src/tests/mschapv1>
     ///
     /// Test vector summary:

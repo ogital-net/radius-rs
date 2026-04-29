@@ -28,7 +28,7 @@ async fn main() {
 
     // start the loop to handle the RADIUS requests
     let result = server.run(signal::ctrl_c()).await;
-    info!("{:?}", result);
+    info!("{result:?}");
     if result.is_err() {
         process::exit(1);
     }
@@ -47,8 +47,7 @@ impl RequestHandler<(), io::Error> for MyRequestHandler {
         let maybe_user_password_attr = rfc2865::lookup_user_password(req_packet);
 
         let user_name = maybe_user_name_attr.unwrap().unwrap();
-        let user_password =
-            String::from_utf8(Vec::from(maybe_user_password_attr.unwrap().unwrap())).unwrap();
+        let user_password = String::from_utf8(maybe_user_password_attr.unwrap().unwrap()).unwrap();
         let code = if user_name == "admin" && user_password == "p@ssw0rd" {
             Code::AccessAccept
         } else {
@@ -57,7 +56,7 @@ impl RequestHandler<(), io::Error> for MyRequestHandler {
         info!("response => {:?} to {}", code, req.remote_addr());
 
         conn.send_to(
-            &req_packet.make_response_packet(code).encode().unwrap(),
+            &req_packet.make_response(code).encode().unwrap(),
             req.remote_addr(),
         )
         .await?;

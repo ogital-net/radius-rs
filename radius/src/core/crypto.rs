@@ -1,13 +1,15 @@
 //! Unified cryptographic primitives shared by the RADIUS protocol implementation.
 //!
-//! All functions delegate to whichever backend feature is active (`aws-lc`,
-//! `openssl`, or `rust-crypto`).  Exactly one of these features must be enabled.
+//! MD5 and HMAC-MD5 delegate unconditionally to the in-tree [`fast_md5`](crate::core::fast_md5)
+//! implementation.  All other operations delegate to whichever backend feature is active
+//! (`aws-lc`, `openssl`, or `rust-crypto`).  Exactly one backend feature must be enabled.
 //!
 //! # Public API
 //!
 //! | Function | Purpose |
 //! |---|---|
 //! | [`md5`] | Raw MD5 digest (used for RADIUS authenticator and password obfuscation) |
+//! | [`md5_of`] | Scatter-gather MD5 — digest of concatenated slices, zero-copy |
 //! | [`hmac_md5`] | HMAC-MD5 keyed MAC (used for `Message-Authenticator`, RFC 3579) |
 //! | [`fill_random`] | Fill a byte slice with cryptographically secure random bytes |
 //! | [`random_bytes`] | Allocate and return `n` cryptographically secure random bytes |
@@ -20,29 +22,19 @@
 ///
 /// Used internally for RADIUS authenticator calculation and
 /// `User-Password` / `Tunnel-Password` obfuscation.
-#[cfg(feature = "aws-lc")]
 #[must_use]
 pub fn md5(data: &[u8]) -> [u8; 16] {
-    crate::core::aws_lc::md5(data)
+    crate::core::fast_md5::md5(data)
 }
 
-/// Compute the MD5 digest of `data`, returning a 16-byte result.
-#[cfg(all(feature = "openssl", not(feature = "aws-lc")))]
-#[must_use]
-pub fn md5(data: &[u8]) -> [u8; 16] {
-    crate::core::openssl::md5(data)
-}
+// ── Multi-part MD5 (scatter-gather, zero heap allocation) ────────────────────
 
-/// Compute the MD5 digest of `data`, returning a 16-byte result.
-#[cfg(all(
-    feature = "rust-crypto",
-    not(feature = "aws-lc"),
-    not(feature = "openssl")
-))]
+/// Compute the MD5 digest of the concatenation of `parts` without allocating
+/// an intermediate buffer.  Equivalent to `md5(&parts.concat())` but faster.
 #[must_use]
-pub fn md5(data: &[u8]) -> [u8; 16] {
-    use md5::{Digest, Md5};
-    Md5::digest(data).into()
+#[inline]
+pub fn md5_of(parts: &[&[u8]]) -> [u8; 16] {
+    crate::core::fast_md5::md5_of(parts)
 }
 
 // ── Random bytes ─────────────────────────────────────────────────────────────
@@ -102,31 +94,22 @@ pub fn fill_random(buf: &mut [u8]) {
 /// Compute HMAC-MD5 over `data` keyed with `key`, returning a 16-byte MAC.
 ///
 /// Required for the `Message-Authenticator` attribute (RFC 3579) used with EAP.
-#[cfg(feature = "aws-lc")]
 #[must_use]
 pub fn hmac_md5(key: &[u8], data: &[u8]) -> [u8; 16] {
-    crate::core::aws_lc::hmac_md5(key, data)
+    crate::core::fast_md5::hmac_md5(key, data)
 }
 
-#[cfg(all(feature = "openssl", not(feature = "aws-lc")))]
+/// Scatter-gather variant of [`hmac_md5`]: keyed MAC over the concatenation
+/// of `parts` without allocating an intermediate buffer.
 #[must_use]
-pub fn hmac_md5(key: &[u8], data: &[u8]) -> [u8; 16] {
-    crate::core::openssl::hmac_md5(key, data)
+#[inline]
+pub fn hmac_md5_of(key: &[u8], parts: &[&[u8]]) -> [u8; 16] {
+    crate::core::fast_md5::hmac_md5_of(key, parts)
 }
 
-#[cfg(all(
-    feature = "rust-crypto",
-    not(feature = "aws-lc"),
-    not(feature = "openssl")
-))]
-#[must_use]
-pub fn hmac_md5(key: &[u8], data: &[u8]) -> [u8; 16] {
-    use hmac::{Hmac, Mac};
-    type HmacMd5 = Hmac<md5::Md5>;
-    let mut mac = HmacMd5::new_from_slice(key).expect("failed to create HMAC-MD5 key");
-    mac.update(data);
-    mac.finalize().into_bytes().into()
-}
+/// Re-export of the streaming HMAC-MD5 context.  Useful when the message is
+/// not available as a single slice or fixed list of slices.
+pub use crate::core::fast_md5::HmacMd5;
 
 // ── Backend-specific MD4, SHA-1, and DES-ECB primitives ──────────────────────
 //

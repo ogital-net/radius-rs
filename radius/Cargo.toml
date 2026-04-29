@@ -17,7 +17,6 @@ build = "build.rs"
 md-5 = { version = "0.10", optional = true }
 md4 = { version = "0.10", optional = true }
 sha1 = { version = "0.10", optional = true }
-hmac = { version = "0.12", optional = true }
 openssl-sys = { version = "0", optional = true }
 aws-lc-sys = { version = "0", optional = true }
 rand = { version = "0.10.1", optional = true }
@@ -29,6 +28,7 @@ tokio = { version = "1.52.1", features = ["net", "time", "macros", "rt"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+aws-lc-sys = "0"
 
 [build-dependencies]
 code-generator = { path = "../code-generator" }
@@ -41,8 +41,12 @@ harness = false
 name = "avp"
 harness = false
 
+[[bench]]
+name = "crypto"
+harness = false
+
 [features]
 default = ["aws-lc"]
 openssl = ["dep:openssl-sys"]
-rust-crypto = ["dep:md-5", "dep:md4", "dep:sha1", "dep:hmac", "dep:rand", "dep:des"]
+rust-crypto = ["dep:md-5", "dep:md4", "dep:sha1", "dep:rand", "dep:des"]
 aws-lc = ["dep:aws-lc-sys"]

@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use radius::core::code::Code;
 use radius::core::packet::Packet;
 use radius::dict::rfc2865;
@@ -14,14 +14,27 @@ static SECRET: &[u8] = b"xyzzy5461";
 
 fn bench_packet_decode(c: &mut Criterion) {
     c.bench_function("Packet::decode (Access-Request)", |b| {
-        b.iter(|| Packet::decode(std::hint::black_box(RFC2865_REQUEST), SECRET).unwrap())
+        b.iter(|| Packet::decode(std::hint::black_box(RFC2865_REQUEST), SECRET).unwrap());
     });
 }
 
 fn bench_packet_encode(c: &mut Criterion) {
     let packet = Packet::decode(RFC2865_REQUEST, SECRET).unwrap();
     c.bench_function("Packet::encode (Access-Request)", |b| {
-        b.iter(|| std::hint::black_box(&packet).encode().unwrap())
+        b.iter(|| std::hint::black_box(&packet).encode().unwrap());
+    });
+}
+
+/// Buffer-reuse encode path: server-style, one persistent Vec across many encodes.
+fn bench_packet_encode_to(c: &mut Criterion) {
+    let packet = Packet::decode(RFC2865_REQUEST, SECRET).unwrap();
+    let mut buf: Vec<u8> = Vec::with_capacity(4096);
+    c.bench_function("Packet::encode_to (reused buffer)", |b| {
+        b.iter(|| {
+            std::hint::black_box(&packet)
+                .encode_to(std::hint::black_box(&mut buf))
+                .unwrap();
+        });
     });
 }
 
@@ -30,7 +43,7 @@ fn bench_packet_encode_accounting(c: &mut Criterion) {
     let mut pkt = Packet::new(Code::AccountingRequest, SECRET);
     rfc2865::add_user_name(&mut pkt, "testuser");
     c.bench_function("Packet::encode (Accounting-Request)", |b| {
-        b.iter(|| std::hint::black_box(&pkt).encode().unwrap())
+        b.iter(|| std::hint::black_box(&pkt).encode().unwrap());
     });
 }
 
@@ -41,14 +54,14 @@ fn bench_packet_new(c: &mut Criterion) {
                 std::hint::black_box(Code::AccessRequest),
                 std::hint::black_box(SECRET),
             )
-        })
+        });
     });
 }
 
 fn bench_is_authentic_response(c: &mut Criterion) {
     // Build a valid Access-Accept response to the RFC2865 request.
     let request = Packet::decode(RFC2865_REQUEST, SECRET).unwrap();
-    let response_pkt = request.make_response_packet(Code::AccessAccept);
+    let response_pkt = request.make_response(Code::AccessAccept);
     let response_bytes = response_pkt.encode().unwrap();
 
     c.bench_function("Packet::is_authentic_response", |b| {
@@ -58,8 +71,39 @@ fn bench_is_authentic_response(c: &mut Criterion) {
                 std::hint::black_box(RFC2865_REQUEST),
                 std::hint::black_box(SECRET),
             )
-        })
+        });
     });
+}
+
+fn bench_is_authentic_request(c: &mut Criterion) {
+    // Build an Accounting-Request and encode it so the authenticator is set correctly.
+    let mut pkt = Packet::new(Code::AccountingRequest, SECRET);
+    rfc2865::add_user_name(&mut pkt, "testuser");
+    let bytes = pkt.encode().unwrap();
+
+    c.bench_function("Packet::is_authentic_request (Accounting-Request)", |b| {
+        b.iter(|| {
+            Packet::is_authentic_request(std::hint::black_box(&bytes), std::hint::black_box(SECRET))
+        });
+    });
+}
+
+/// Benchmark `encode+is_authentic_response` with a larger packet (many attributes)
+/// to stress the hash-over-attributes code path.
+fn bench_large_packet_encode(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Packet::encode (large)");
+    for n_attrs in [5usize, 20, 50] {
+        let mut pkt = Packet::new(Code::AccountingRequest, SECRET);
+        for i in 0..n_attrs {
+            rfc2865::add_user_name(&mut pkt, &format!("user{i:04}"));
+        }
+        group.bench_with_input(
+            BenchmarkId::from_parameter(format!("{n_attrs} attrs")),
+            &pkt,
+            |b, p| b.iter(|| std::hint::black_box(p).encode().unwrap()),
+        );
+    }
+    group.finish();
 }
 
 criterion_group!(
@@ -67,7 +111,10 @@ criterion_group!(
     bench_packet_new,
     bench_packet_decode,
     bench_packet_encode,
+    bench_packet_encode_to,
     bench_packet_encode_accounting,
     bench_is_authentic_response,
+    bench_is_authentic_request,
+    bench_large_packet_encode,
 );
 criterion_main!(benches);

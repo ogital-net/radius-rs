@@ -7,6 +7,7 @@ pub(crate) mod aws_lc;
 pub mod code;
 pub mod crypto;
 pub mod eap;
+pub mod fast_md5;
 #[cfg(feature = "openssl")]
 pub(crate) mod openssl;
 pub mod packet;

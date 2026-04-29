@@ -24,7 +24,7 @@ fn bench_from_user_password(c: &mut Criterion) {
                         std::hint::black_box(REQUEST_AUTHENTICATOR),
                     )
                     .unwrap()
-                })
+                });
             },
         );
     }
@@ -52,7 +52,7 @@ fn bench_encode_user_password(c: &mut Criterion) {
                             std::hint::black_box(REQUEST_AUTHENTICATOR),
                         )
                         .unwrap()
-                })
+                });
             },
         );
     }
@@ -80,7 +80,36 @@ fn bench_from_tunnel_password(c: &mut Criterion) {
                         std::hint::black_box(REQUEST_AUTHENTICATOR),
                     )
                     .unwrap()
-                })
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_encode_tunnel_password(c: &mut Criterion) {
+    let mut group = c.benchmark_group("AVP::encode_tunnel_password");
+    for password in [
+        "",
+        "short",
+        "exactly-16-bytes",
+        "a-longer-password-exceeding-16-bytes",
+    ] {
+        let avp =
+            AVP::from_tunnel_password(69, None, password.as_bytes(), SECRET, REQUEST_AUTHENTICATOR)
+                .unwrap();
+        group.bench_with_input(
+            BenchmarkId::from_parameter(format!("{} bytes", password.len())),
+            &avp,
+            |b, a| {
+                b.iter(|| {
+                    std::hint::black_box(a)
+                        .encode_tunnel_password(
+                            std::hint::black_box(SECRET),
+                            std::hint::black_box(REQUEST_AUTHENTICATOR),
+                        )
+                        .unwrap()
+                });
             },
         );
     }
@@ -92,5 +121,6 @@ criterion_group!(
     bench_from_user_password,
     bench_encode_user_password,
     bench_from_tunnel_password,
+    bench_encode_tunnel_password,
 );
 criterion_main!(benches);
